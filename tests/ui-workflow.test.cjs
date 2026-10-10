@@ -1,0 +1,44 @@
+// Minimal deterministic DOM/native bridge harness; no claim of browser or Android execution.
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const js=fs.readFileSync(require('node:path').join(__dirname,'../app/src/main/assets/app/app.js'),'utf8');
+let passed=0;
+class Element{
+ constructor(tag='div'){this.tagName=tag.toUpperCase();this.children=[];this.hidden=false;this.value='';this.checked=false;this.style={};this.dataset={};this._text='';this._class='';this.listeners={};this.scrollHeight=300;this.attributes={};
+  this.classList={add:c=>{this._class+=' '+c;},remove:c=>{this._class=this._class.split(' ').filter(x=>x!==c).join(' ');},contains:c=>this._class.split(' ').includes(c),toggle:(c,on)=>{const have=this.classList.contains(c);if(on===undefined)on=!have;if(on&&!have)this.classList.add(c);else if(!on&&have)this.classList.remove(c);}};
+ }
+ get className(){return this._class;}set className(s){this._class=s;}
+ get textContent(){return this._text+this.children.map(x=>x.textContent).join('');}set textContent(s){this._text=String(s);this.children=[];}
+ get lastElementChild(){return this.children.at(-1)||null;}
+ append(...items){for(const item of items){item.parent=this;this.children.push(item);}}
+ replaceChildren(...items){this.children=[];this._text='';this.append(...items);}
+ remove(){if(this.parent)this.parent.children=this.parent.children.filter(x=>x!==this);}
+ setAttribute(name,value){this.attributes[name]=value;}addEventListener(name,cb){this.listeners[name]=cb;}scrollTo(){}
+ all(){return [this,...this.children.flatMap(x=>x.all())];}
+}
+function environment(initial={}){
+ const root=new Element('body'),ids={};
+ for(const id of ['drawer','scrim','welcome','messages','chatScroll','chatInput','send','docCount','toast','modal','sheetTitle','sheetEyebrow','sheetBody','sheetActions','progressPill','progressText','progressAction','menuButton','closeMenu','newChat','openDocs','openProfile','openBrowser','openSettings','profileShortcut','attach','closeSheet']){ids[id]=new Element(id==='chatInput'?'textarea':'div');ids[id].id=id;root.append(ids[id]);}
+ ids.modal.hidden=true;
+ const doc={body:root,getElementById:id=>root.all().find(e=>e.id===id)||null,createElement:tag=>new Element(tag),querySelectorAll:()=>[]};
+ let saved={profile:{},documents:[],ai:{},workspace:{},...initial},calls=[],timers=new Map(),next=0,context;
+ const native={state:()=>JSON.stringify(saved),saveWorkspace:s=>{calls.push(['saveWorkspace',JSON.parse(s)]);saved.workspace=JSON.parse(s);},saveProfile:s=>{calls.push(['saveProfile',JSON.parse(s)]);},pickDocument:()=>calls.push(['pickDocument']),openPortal:url=>calls.push(['openPortal',url]),openDemo:()=>calls.push(['openDemo']),requestAi:s=>calls.push(['requestAi',JSON.parse(s)]),removeDocument:id=>calls.push(['removeDocument',id]),rescanDocument:id=>calls.push(['rescanDocument',id]),saveAiSettings:s=>calls.push(['saveAiSettings',JSON.parse(s)]),eraseLocalData:()=>calls.push(['eraseLocalData'])};
+ const local=new Map();const window={AvsarGoNative:native,localStorage:{getItem:k=>local.get(k)||null,setItem:(k,v)=>local.set(k,v),removeItem:k=>local.delete(k)}};
+ context=vm.createContext({window,document:doc,console,URL,Date,Math,confirm:()=>true,setTimeout:fn=>{timers.set(++next,fn);return next;},clearTimeout:id=>timers.delete(id),requestAnimationFrame:fn=>fn()});vm.runInContext(js,context);
+ const action=text=>{const button=ids.sheetActions.children.find(x=>x.textContent===text);assert.ok(button,'Missing action '+text);button.onclick();};
+ return {ids,calls,doc,action,window,native,setState:value=>{saved={...saved,...value};},event:(name,data)=>window.AvsarGoEvent(name,data),flush:()=>{const work=[...timers.values()];timers.clear();work.forEach(fn=>fn());},say:text=>{ids.chatInput.value=text;ids.send.onclick();},sheetAll:()=>ids.sheetBody.all()};
+}
+function test(name,fn){fn();passed++;console.log('PASS',name);}
+test('Railway uses a railway portal, never SSC',()=>{const e=environment({profile:{fullName:'Test'}});e.say('Mujhe railway NTPC ka form bharna hai');e.ids.openBrowser.onclick();assert.equal(e.doc.getElementById('portalUrl').value,'https://www.rrcb.gov.in/rrbs.html');});
+test('Unknown exam retains custom name and asks for its official link',()=>{const e=environment({profile:{fullName:'Test'}});e.say('Mujhe bank exam application fill karna hai');e.ids.openBrowser.onclick();assert.equal(e.doc.getElementById('portalUrl').value,'');assert.ok(!e.ids.messages.textContent.includes('SSC exam'));});
+test('Document picker requires explicit storage/OCR consent',()=>{const e=environment();e.ids.attach.onclick();e.action('Choose documents');assert.equal(e.calls.filter(x=>x[0]==='pickDocument').length,0);e.sheetAll().find(x=>x.tagName==='INPUT').checked=true;e.action('Choose documents');assert.equal(e.calls.filter(x=>x[0]==='pickDocument').length,1);});
+test('Multiple OCR results accumulate and open one review after import completes',()=>{const e=environment();e.ids.attach.onclick();e.sheetAll().find(x=>x.tagName==='INPUT').checked=true;e.action('Choose documents');e.event('ocrResult',{fields:{fullName:'Applicant'}});assert.equal(e.ids.modal.hidden,true);e.event('ocrResult',{fields:{dob:'21/01/2024'}});e.event('importDone',{ok:true,message:'Done'});assert.equal(e.doc.getElementById('profile-fullName').value,'Applicant');assert.equal(e.doc.getElementById('profile-dob').value,'21/01/2024');});
+test('Profile save needs review consent, preserves error review screen',()=>{const e=environment();e.ids.openProfile.onclick();e.doc.getElementById('profile-fullName').value='Test';e.action('Approve & save');assert.equal(e.calls.length,0);e.sheetAll().find(x=>x.type==='checkbox').checked=true;e.action('Approve & save');assert.equal(e.calls[0][0],'saveProfile');e.event('profileSaved',{ok:false,message:'Invalid mobile'});assert.equal(e.ids.modal.hidden,false);});
+test('HTTPS domain and credential URL guards reject lookalike websites',()=>{const e=environment({profile:{fullName:'Test'}});e.ids.openBrowser.onclick();for(const u of ['https://gov.in.evil.example/','http://test.gov.in/','https://user:pass@test.gov.in/','https://test.gov.in:444/']){e.doc.getElementById('portalUrl').value=u;e.action('Open in-app browser');}assert.equal(e.calls.filter(x=>x[0]==='openPortal').length,0);e.doc.getElementById('portalUrl').value='https://ssc.gov.in/';e.action('Open in-app browser');assert.equal(e.calls.at(-1)[1],'https://ssc.gov.in/');});
+test('Real AI request uses typed turns, excludes local document metadata and profile values',()=>{
+ const e=environment({profile:{fullName:'PRIVATE NAME'},ai:{enabled:true,hasKey:true}});e.event('documentAdded',{item:{name:'PRIVATE_DOCUMENT_NAME'}});e.say('PAN application kaise karun?');const req=e.calls.find(x=>x[0]==='requestAi')[1];assert.equal(req.messages.length,1);assert.equal(req.messages[0].text,'PAN application kaise karun?');assert.ok(!JSON.stringify(req).includes('PRIVATE'));e.event('aiReply',{ok:true,text:'Tell me your state',requestId:req.requestId});e.say('Bihar');const second=e.calls.filter(x=>x[0]==='requestAi').at(-1)[1];assert.equal(second.messages.length,3);assert.equal(second.messages[1].text,'Tell me your state');
+});
+test('AI errors restore send button and do not masquerade as model output',()=>{const e=environment({ai:{enabled:true,hasKey:true}});e.say('Hello');assert.equal(e.ids.send.disabled,true);const id=e.calls.find(x=>x[0]==='requestAi')[1].requestId;e.event('aiReply',{ok:false,text:'HTTP 429',requestId:id});assert.equal(e.ids.send.disabled,false);assert.ok(e.ids.messages.textContent.includes('AI connection issue'));});
+test('Encrypted conversation restores without sending it to cloud',()=>{const e=environment({workspace:{messages:[{role:'user',text:'My prior form',cloud:true},{role:'assistant',text:'Prior answer',cloud:true}],service:'ssc'}});assert.ok(e.ids.messages.textContent.includes('My prior form'));assert.equal(e.calls.length,0);assert.equal(e.ids.progressPill.hidden,false);});
+test('Successful erase clears chat/profile indicators and pending save timer',()=>{const e=environment({profile:{fullName:'Test'}});e.say('SSC form');e.setState({profile:{},documents:[],ai:{},workspace:{}});e.event('erased',{ok:true,message:'Deleted'});e.flush();assert.equal(e.ids.messages.children.length,0);assert.equal(e.ids.welcome.hidden,false);assert.equal(e.calls.filter(x=>x[0]==='saveWorkspace').length,0);});
+test('Android Back first closes sheet, then drawer',()=>{const e=environment();e.ids.openProfile.onclick();assert.equal(e.window.avsargoHandleBack(),true);e.ids.menuButton.onclick();assert.equal(e.window.avsargoHandleBack(),true);assert.equal(e.window.avsargoHandleBack(),false);});
+console.log(`UI workflow: ${passed} checks passed`);

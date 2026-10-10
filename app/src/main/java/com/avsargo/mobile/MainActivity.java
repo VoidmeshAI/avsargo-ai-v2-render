@@ -1,0 +1,301 @@
+package com.avsargo.mobile;
+
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.ActivityNotFoundException;
+import android.content.Intent;
+import android.content.res.ColorStateList;
+import android.database.Cursor;
+import android.graphics.Color;
+import android.net.Uri;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.OpenableColumns;
+import android.view.Gravity;
+import android.view.View;
+import android.view.WindowInsets;
+import android.webkit.*;
+import android.widget.*;
+import org.json.*;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+/** Trusted bundled chat and untrusted portal use separate WebViews; only chat has a native bridge. */
+public final class MainActivity extends Activity {
+    private static final int PICK_DOCUMENT=101,PICK_PORTAL_UPLOAD=102;
+    private static final String ASSETS="https://appassets.androidplatform.net/assets/";
+    private WebView appWeb,siteWeb;
+    private LinearLayout browserLayout;
+    private TextView browserTitle,browserStatus;
+    private ProgressBar browserProgress;
+    private SecureVault vault;
+    private String helperJs="",lastPromptSignature="",currentPortalUrl="",autoOrigin="";
+    private JSONObject cachedProfile=new JSONObject();
+    private final Handler handler=new Handler(Looper.getMainLooper());
+    private final ExecutorService io=Executors.newSingleThreadExecutor();
+    private final ArrayList<String> events=new ArrayList<>();
+    private ValueCallback<Uri[]> portalFileCallback;
+    private WebChromeClient.FileChooserParams uploadParams;
+    private volatile int dataGeneration=0;
+    private volatile boolean erasing=false;
+    private boolean browserShown=false,dialogVisible=false,appReady=false,active=false,destroyed=false,scanBusy=false,portalLoading=false;
+    private int navigationId=0;
+    private final Runnable periodicScan=new Runnable(){public void run(){if(active){scanAndOffer(false);handler.postDelayed(this,2400);}}};
+
+    @Override public void onCreate(Bundle state){
+        super.onCreate(state);
+        if(android.os.Build.VERSION.SDK_INT>=30)getWindow().setDecorFitsSystemWindows(false);
+        if(android.os.Build.VERSION.SDK_INT>=33)getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,this::onBackPressed);
+        getWindow().setStatusBarColor(Color.rgb(18,26,24));getWindow().setNavigationBarColor(Color.rgb(18,26,24));
+        vault=new SecureVault(this);
+        File[] cache=getCacheDir().listFiles();if(cache!=null)for(File f:cache)if(f.getName().startsWith("ocr_")&&f.getName().endsWith(".pdf"))f.delete();
+        try(InputStream in=getAssets().open("app/form-agent.js")){helperJs=new String(SecureVault.readLimited(in,64000),StandardCharsets.UTF_8);}catch(Exception ignored){}
+        FrameLayout shell=new FrameLayout(this);
+        shell.setOnApplyWindowInsetsListener((v,insets)->{
+            int left=0,top=0,right=0,bottom=0;
+            if(android.os.Build.VERSION.SDK_INT>=30){android.graphics.Insets safe=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout()|WindowInsets.Type.ime());left=safe.left;top=safe.top;right=safe.right;bottom=safe.bottom;}
+            v.setPadding(left,top,right,bottom);return insets;
+        });
+        appWeb=new WebView(this);appWeb.setBackgroundColor(Color.rgb(250,251,249));
+        configure(appWeb,false);appWeb.getSettings().setBlockNetworkLoads(true);appWeb.getSettings().setAllowContentAccess(false);
+        appWeb.addJavascriptInterface(new PrivateBridge(),"AvsarGoNative");
+        appWeb.setWebViewClient(new WebViewClient(){
+            @Override public WebResourceResponse shouldInterceptRequest(WebView v,WebResourceRequest r){return asset(r.getUrl(),"app/");}
+            @Override public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest r){return !isAppAsset(r.getUrl().toString());}
+            @Override public void onPageStarted(WebView v,String u,android.graphics.Bitmap icon){appReady=false;}
+            @Override public void onPageFinished(WebView v,String u){appReady=true;for(String event:new ArrayList<>(events))v.evaluateJavascript(event,null);events.clear();}
+        });
+        appWeb.setWebChromeClient(dialogChrome());shell.addView(appWeb,new FrameLayout.LayoutParams(-1,-1));
+        buildBrowser();shell.addView(browserLayout,new FrameLayout.LayoutParams(-1,-1));browserLayout.setVisibility(View.GONE);
+        setContentView(shell);shell.requestApplyInsets();appWeb.loadUrl(ASSETS+"app/index.html");
+    }
+    private void configure(WebView web,boolean portal){
+        WebSettings s=web.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(true);s.setAllowFileAccess(false);s.setAllowContentAccess(portal);
+        s.setAllowFileAccessFromFileURLs(false);s.setAllowUniversalAccessFromFileURLs(false);s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        s.setJavaScriptCanOpenWindowsAutomatically(false);s.setSupportMultipleWindows(false);s.setSafeBrowsingEnabled(true);
+        if(portal){s.setBuiltInZoomControls(true);s.setDisplayZoomControls(false);s.setUseWideViewPort(true);s.setLoadWithOverviewMode(true);}
+    }
+    private WebResourceResponse asset(Uri uri,String prefix){
+        if(!"https".equals(uri.getScheme())||!"appassets.androidplatform.net".equals(uri.getHost()))return new WebResourceResponse("text/plain","UTF-8",new ByteArrayInputStream(new byte[0]));
+        String path=uri.getPath();if(path==null||!path.startsWith("/assets/"+prefix)||path.contains(".."))return new WebResourceResponse("text/plain","UTF-8",new ByteArrayInputStream(new byte[0]));
+        try{String file=path.substring(8);String mime=file.endsWith(".js")?"application/javascript":file.endsWith(".css")?"text/css":"text/html";
+            return new WebResourceResponse(mime,"UTF-8",getAssets().open(file));}catch(Exception e){return new WebResourceResponse("text/plain","UTF-8",new ByteArrayInputStream(new byte[0]));}
+    }
+    private static boolean isAppAsset(String url){return url.startsWith(ASSETS+"app/");}
+    private int dp(int size){return Math.round(size*getResources().getDisplayMetrics().density);}
+    private Button toolbarButton(String text){Button b=new Button(this);b.setText(text);b.setAllCaps(false);b.setTextSize(12);b.setTextColor(Color.WHITE);b.setMinWidth(0);b.setMinimumWidth(0);b.setPadding(dp(8),0,dp(8),0);b.setBackgroundTintList(ColorStateList.valueOf(Color.rgb(24,67,60)));return b;}
+    private void buildBrowser(){
+        browserLayout=new LinearLayout(this);browserLayout.setOrientation(LinearLayout.VERTICAL);browserLayout.setBackgroundColor(Color.WHITE);
+        LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);head.setPadding(dp(4),dp(4),dp(4),dp(4));head.setBackgroundColor(Color.rgb(13,32,31));
+        Button back=toolbarButton("‹");head.addView(back,new LinearLayout.LayoutParams(dp(42),dp(44)));back.setOnClickListener(v->{if(siteWeb.canGoBack())siteWeb.goBack();else showChat();});
+        browserTitle=new TextView(this);browserTitle.setTextSize(11);browserTitle.setTextColor(Color.WHITE);browserTitle.setMaxLines(2);head.addView(browserTitle,new LinearLayout.LayoutParams(0,-2,1));
+        Button assist=toolbarButton("Assist");head.addView(assist,new LinearLayout.LayoutParams(-2,dp(44)));assist.setOnClickListener(v->scanAndOffer(true));
+        Button close=toolbarButton("✕");head.addView(close,new LinearLayout.LayoutParams(dp(42),dp(44)));close.setOnClickListener(v->showChat());
+        browserLayout.addView(head,new LinearLayout.LayoutParams(-1,-2));
+        browserProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);browserProgress.setMax(100);browserLayout.addView(browserProgress,new LinearLayout.LayoutParams(-1,dp(3)));
+        browserStatus=new TextView(this);browserStatus.setTextSize(11);browserStatus.setTextColor(Color.rgb(30,90,68));browserStatus.setPadding(dp(12),dp(8),dp(12),dp(8));browserLayout.addView(browserStatus,new LinearLayout.LayoutParams(-1,-2));
+        siteWeb=new WebView(this);configure(siteWeb,true);
+        CookieManager.getInstance().setAcceptCookie(true);CookieManager.getInstance().setAcceptThirdPartyCookies(siteWeb,false);
+        // There is deliberately no addJavascriptInterface on siteWeb.
+        siteWeb.setWebViewClient(new WebViewClient(){
+            @Override public WebResourceResponse shouldInterceptRequest(WebView v,WebResourceRequest r){
+                String scheme=r.getUrl().getScheme();if("appassets.androidplatform.net".equals(r.getUrl().getHost()))return asset(r.getUrl(),"demo/");
+                if(!"https".equalsIgnoreCase(scheme))return new WebResourceResponse("text/plain","UTF-8",new ByteArrayInputStream(new byte[0]));return null;
+            }
+            @Override public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest r){
+                if(!r.isForMainFrame())return false;String u=r.getUrl().toString();if(allowedUrl(u))return false;warnExternal(u);return true;
+            }
+            @Override public void onPageStarted(WebView v,String url,android.graphics.Bitmap icon){
+                navigationId++;scanBusy=false;portalLoading=true;lastPromptSignature="";
+                if(!allowedUrl(url)){v.stopLoading();autoOrigin="";browserStatus.setText("Unsupported page. Assist paused.");return;}
+                currentPortalUrl=url;if(!origin(url).equals(autoOrigin))autoOrigin="";
+                browserTitle.setText(isDemo(url)?"Local test form":Uri.parse(url).getHost());browserStatus.setText("Page khul raha hai…");
+            }
+            @Override public void onPageFinished(WebView v,String url){
+                portalLoading=false;if(!allowedUrl(url))return;currentPortalUrl=url;browserStatus.setText("Form check ho raha hai…");handler.postDelayed(()->scanAndOffer(false),700);
+            }
+            @Override public void onReceivedSslError(WebView v,SslErrorHandler h,android.net.http.SslError error){h.cancel();autoOrigin="";browserStatus.setText("Secure connection failed");actionDialog("Connection blocked","Website ka security certificate valid nahi hai.");}
+            @Override public void onReceivedError(WebView v,WebResourceRequest req,WebResourceError err){if(req.isForMainFrame()){portalLoading=false;browserStatus.setText("Page load nahi hua. Internet aur URL check karein.");}}
+            @Override public void onReceivedHttpError(WebView v,WebResourceRequest req,WebResourceResponse resp){
+                if(req.isForMainFrame()&&(resp.getStatusCode()==403||resp.getStatusCode()==451)){autoOrigin="";browserStatus.setText("Portal ne embedded browser block kiya.");warnExternal(req.getUrl().toString());}
+            }
+        });
+        siteWeb.setWebChromeClient(new WebChromeClient(){
+            @Override public void onProgressChanged(WebView v,int progress){browserProgress.setProgress(progress);browserProgress.setVisibility(progress<100?View.VISIBLE:View.GONE);}
+            @Override public boolean onShowFileChooser(WebView v,ValueCallback<Uri[]> callback,FileChooserParams params){
+                if(portalFileCallback!=null)portalFileCallback.onReceiveValue(null);portalFileCallback=callback;uploadParams=params;
+                offerPortalDocuments();return true;
+            }
+            @Override public boolean onJsAlert(WebView v,String u,String msg,JsResult r){showJsDialog(msg,r,false);return true;}
+            @Override public boolean onJsConfirm(WebView v,String u,String msg,JsResult r){showJsDialog(msg,r,true);return true;}
+        });
+        siteWeb.setDownloadListener((url,agent,disposition,mime,size)->warnExternal(url));
+        browserLayout.addView(siteWeb,new LinearLayout.LayoutParams(-1,0,1));
+    }
+    private WebChromeClient dialogChrome(){return new WebChromeClient(){
+        @Override public boolean onJsAlert(WebView v,String u,String msg,JsResult r){showJsDialog(msg,r,false);return true;}
+        @Override public boolean onJsConfirm(WebView v,String u,String msg,JsResult r){showJsDialog(msg,r,true);return true;}
+    };}
+    private void showJsDialog(String msg,JsResult result,boolean confirm){
+        AlertDialog.Builder d=new AlertDialog.Builder(this).setMessage(msg).setPositiveButton("OK",(v,w)->result.confirm()).setOnCancelListener(v->result.cancel());
+        if(confirm)d.setNegativeButton("Cancel",(v,w)->result.cancel());d.show();
+    }
+    private static boolean isDemo(String url){return url!=null&&(url.equals(ASSETS+"demo/login.html")||url.equals(ASSETS+"demo/form.html")||url.equals(ASSETS+"demo/step2.html"));}
+    private static boolean allowedUrl(String url){
+        if(isDemo(url))return true;
+        try{Uri u=Uri.parse(url);String host=u.getHost();if(!"https".equalsIgnoreCase(u.getScheme())||host==null||u.getUserInfo()!=null||(u.getPort()!=-1&&u.getPort()!=443))return false;
+            String h=java.net.IDN.toASCII(host).toLowerCase(Locale.ROOT);return h.endsWith(".gov.in")||h.endsWith(".nic.in");
+        }catch(Exception e){return false;}
+    }
+    private static String origin(String url){try{Uri u=Uri.parse(url);return u.getScheme()+"://"+u.getHost();}catch(Exception e){return "";}}
+    private void warnExternal(String url){
+        if(destroyed||url.startsWith("about:"))return;
+        new AlertDialog.Builder(this).setTitle("Open in regular browser?").setMessage("Is page par in-app Assist available nahi hai. External browser mein aap form manually continue kar sakte hain.")
+            .setPositiveButton("Open browser",(d,w)->{try{Uri u=Uri.parse(url);if("https".equalsIgnoreCase(u.getScheme())&&u.getUserInfo()==null)startActivity(new Intent(Intent.ACTION_VIEW,u));}catch(Exception ignored){}}).setNegativeButton("Stay",null).show();
+    }
+    private void showBrowser(String url){
+        if(!allowedUrl(url)){warnExternal(url);return;}
+        try{cachedProfile=vault.getProfile();}catch(Exception e){actionDialog("Profile unavailable","Saved profile read nahi hua. Profile dobara review karein.");return;}
+        if(cachedProfile.length()==0){actionDialog("Review profile","Documents ki details review aur save karke form kholen.");return;}
+        autoOrigin="";lastPromptSignature="";browserShown=true;browserLayout.setVisibility(View.VISIBLE);appWeb.setVisibility(View.GONE);siteWeb.loadUrl(url);
+    }
+    private void showChat(){browserShown=false;autoOrigin="";browserLayout.setVisibility(View.GONE);appWeb.setVisibility(View.VISIBLE);appWeb.evaluateJavascript("window.avsargoOnReturn&&window.avsargoOnReturn()",null);}
+    private JSONObject parseJs(String raw)throws Exception{Object obj=new JSONTokener(raw).nextValue();return obj instanceof String?new JSONObject((String)obj):(JSONObject)obj;}
+    private void scanAndOffer(boolean manual){
+        if(!browserShown||!active||portalLoading||helperJs.isEmpty()||dialogVisible||scanBusy||!allowedUrl(siteWeb.getUrl()))return;
+        scanBusy=true;final int nav=navigationId,generation=dataGeneration;final String url=siteWeb.getUrl();
+        siteWeb.evaluateJavascript("("+helperJs+")(\"scan\",null)",raw->{
+            scanBusy=false;if(destroyed||!browserShown||nav!=navigationId||generation!=dataGeneration||!url.equals(siteWeb.getUrl()))return;
+            try{
+                JSONObject scan=parseJs(raw);if(!scan.optBoolean("ok"))return;String sig=scan.optString("signature");
+                JSONObject flags=scan.optJSONObject("flags");JSONArray fields=scan.optJSONArray("fields");if(fields==null)fields=new JSONArray();
+                JSONObject eligible=new JSONObject();ArrayList<String> missing=new ArrayList<>();
+                for(int i=0;i<fields.length();i++){String key=fields.optString(i),val=cachedProfile.optString(key,"");if(val.isEmpty())missing.add(key);else eligible.put(key,val);}
+                String hint=flags!=null&&flags.optBoolean("login")?"Login aap khud complete karein; Assist uske baad continue karega.":flags!=null&&flags.optBoolean("payment")?"Payment aapke control mein hai.":eligible.length()>0?eligible.length()+" profile details ready":missing.size()>0?missing.size()+" details aapse chahiye":flags!=null&&(flags.optBoolean("otp")||flags.optBoolean("captcha"))?"OTP / CAPTCHA khud complete karein.":"Agla form step kholen. Assist active hai.";
+                if(flags!=null&&flags.optBoolean("files"))hint+=" • Upload button se saved documents choose kar sakte hain.";
+                if(scan.optInt("unknownRequired")>0)hint+=" • Extra required details portal par khud daalein.";
+                if(flags!=null&&flags.optBoolean("crossOriginFrame"))hint+=" • Kuch embedded fields read nahi ho sakte.";
+                browserStatus.setText(hint);
+                if(!manual&&sig.equals(lastPromptSignature))return;lastPromptSignature=sig;
+                if(flags!=null&&(flags.optBoolean("login")||flags.optBoolean("payment"))){actionDialog("Aapki zarurat",hint);return;}
+                if(eligible.length()>0){
+                    if(origin(url).equals(autoOrigin)&&!manual){fill(eligible,sig,nav,url,missing);return;}
+                    dialogVisible=true;CheckBox allow=new CheckBox(this);allow.setText("Is website session ke agle steps par reviewed blank details automatically fill karein");allow.setPadding(dp(16),dp(4),dp(16),dp(12));
+                    AlertDialog d=new AlertDialog.Builder(this).setTitle("Fill "+eligible.length()+" details?").setMessage(humanFields(eligible)+"\nWebsite: "+Uri.parse(url).getHost()+"\n\nPehle bhari details change nahi hongi. Submit aap khud karenge.").setView(allow)
+                        .setPositiveButton("Fill details",(v,w)->{dialogVisible=false;if(nav!=navigationId||!url.equals(siteWeb.getUrl()))return;if(allow.isChecked())autoOrigin=origin(url);fill(eligible,sig,nav,url,missing);})
+                        .setNegativeButton("Abhi nahi",(v,w)->dialogVisible=false).create();d.setOnDismissListener(v->dialogVisible=false);d.show();return;
+                }
+                if(!missing.isEmpty()){askMissing(missing,nav,url);return;}
+                if(scan.optInt("unknownRequired")>0)actionDialog("Additional details", "Is page par extra required details hain jo profile se safely match nahi hui. Portal par unhe khud check/fill karke continue karein.");
+                else if(manual)actionDialog("Assist",hint);
+                else if(flags!=null&&(flags.optBoolean("otp")||flags.optBoolean("captcha")))actionDialog("Aapki zarurat",hint);
+            }catch(Exception e){if(manual)actionDialog("Form check unavailable","Is page ka form read nahi hua. Details manually enter karke continue karein.");}
+        });
+    }
+    private String humanFields(JSONObject values){StringBuilder text=new StringBuilder();for(String key:ProfileRules.KEYS)if(values.has(key))text.append("• ").append(ProfileRules.label(key)).append('\n');return text.toString();}
+    private void fill(JSONObject values,String signature,int nav,String url,List<String> missing){
+        if(nav!=navigationId||!url.equals(siteWeb.getUrl())||!browserShown)return;
+        JSONObject payload=new JSONObject();try{payload.put("fields",values).put("signature",signature);}catch(Exception e){return;}
+        siteWeb.evaluateJavascript("("+helperJs+")(\"fill\","+payload.toString()+")",raw->{
+            if(destroyed||nav!=navigationId||!url.equals(siteWeb.getUrl()))return;
+            try{JSONObject result=parseJs(raw);if(!result.optBoolean("ok")){browserStatus.setText("Page badla hai. Assist se dobara check karein.");lastPromptSignature="";return;}
+                JSONArray filled=result.optJSONArray("filled"),skipped=result.optJSONArray("skipped");int n=filled==null?0:filled.length();
+                browserStatus.setText(n+" details filled. Review karke Next aap khud press karein."+(skipped!=null&&skipped.length()>0?" Kuch dropdown/format details manually enter karein.":""));
+                if(!missing.isEmpty())handler.postDelayed(()->askMissing(missing,nav,url),400);
+            }catch(Exception e){browserStatus.setText("Fill result read nahi hua. Portal par details check karein.");}
+        });
+    }
+    private void askMissing(List<String> fields,int nav,String url){
+        if(dialogVisible||!browserShown||nav!=navigationId||!url.equals(siteWeb.getUrl())||fields.isEmpty())return;
+        LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(20),0,dp(20),0);Map<String,EditText> inputs=new LinkedHashMap<>();
+        for(String key:fields){if(!Arrays.asList(ProfileRules.KEYS).contains(key))continue;TextView label=new TextView(this);label.setText(ProfileRules.label(key));box.addView(label);EditText input=new EditText(this);input.setSingleLine(!"address".equals(key));input.setHint("dob".equals(key)?"DD/MM/YYYY":"Enter detail");box.addView(input);inputs.put(key,input);}
+        CheckBox save=new CheckBox(this);save.setText("Verified profile mein ye reviewed details save karein");box.addView(save);ScrollView scroll=new ScrollView(this);scroll.addView(box);
+        dialogVisible=true;AlertDialog d=new AlertDialog.Builder(this).setTitle("Ye details aapse chahiye").setMessage("Document ke mutabik sahi details daalein. Isi website session mein use hongi.").setView(scroll).setPositiveButton("Continue",null).setNegativeButton("Portal par bharunga",(v,w)->{}).create();
+        d.setOnDismissListener(v->dialogVisible=false);d.setOnShowListener(v->d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(button->{
+            try{
+                if(nav!=navigationId||!url.equals(siteWeb.getUrl())){d.dismiss();return;}
+                Map<String,String> map=new LinkedHashMap<>();for(Map.Entry<String,EditText> entry:inputs.entrySet())map.put(entry.getKey(),entry.getValue().getText().toString());
+                Map<String,String> validated=ProfileRules.validate(map);if(validated.isEmpty()){Toast.makeText(this,"Ek detail enter karein",Toast.LENGTH_SHORT).show();return;}
+                JSONObject updated=new JSONObject(cachedProfile.toString());for(Map.Entry<String,String> entry:validated.entrySet())updated.put(entry.getKey(),entry.getValue());
+                cachedProfile=updated;
+                if(save.isChecked()){final int gen=dataGeneration;io.execute(()->{try{if(gen==dataGeneration){JSONObject stored=vault.getProfile();for(Map.Entry<String,String> e:validated.entrySet())stored.put(e.getKey(),e.getValue());vault.saveProfile(stored);sendToUi("profileUpdated",result(true,"Profile updated"));}}catch(Exception e){sendToUi("profileUpdated",result(false,"Profile save failed"));}});}
+                d.dismiss();lastPromptSignature="";scanAndOffer(true);
+            }catch(Exception e){Toast.makeText(this,e.getMessage(),Toast.LENGTH_LONG).show();}
+        }));d.show();
+    }
+    private void actionDialog(String title,String message){if(dialogVisible||destroyed)return;dialogVisible=true;AlertDialog d=new AlertDialog.Builder(this).setTitle(title).setMessage(message).setPositiveButton("Theek hai",null).create();d.setOnDismissListener(v->dialogVisible=false);d.show();}
+    private void sendToUi(String name,JSONObject data){handler.post(()->{if(destroyed)return;String script="window.AvsarGoEvent&&window.AvsarGoEvent("+JSONObject.quote(name)+","+data.toString()+")";if(appReady)appWeb.evaluateJavascript(script,null);else if(events.size()<40)events.add(script);});}
+    private JSONObject result(boolean ok,String message){JSONObject j=new JSONObject();try{j.put("ok",ok).put("message",message==null?"Action unavailable":message);}catch(Exception ignored){}return j;}
+    private String displayName(Uri uri){try(Cursor c=getContentResolver().query(uri,new String[]{OpenableColumns.DISPLAY_NAME},null,null,null)){if(c!=null&&c.moveToFirst())return c.getString(0);}catch(Exception ignored){}return "document";}
+    private void importDocuments(List<Uri> uris,int index,int generation){
+        if(destroyed)return;
+        if(index>=uris.size()||generation!=dataGeneration){sendToUi("importDone",result(true,"Upload complete"));return;}
+        Uri uri=uris.get(index);io.execute(()->{
+            try{
+                if(generation!=dataGeneration)return;String mime=getContentResolver().getType(uri);String name=displayName(uri);
+                if(mime==null||"application/octet-stream".equals(mime)){String n=name.toLowerCase(Locale.ROOT);mime=n.endsWith(".pdf")?"application/pdf":n.endsWith(".png")?"image/png":n.endsWith(".jpg")||n.endsWith(".jpeg")?"image/jpeg":"";}
+                byte[] bytes;try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new IOException("File read nahi hua");bytes=SecureVault.readLimited(in,8*1024*1024);}
+                if(generation!=dataGeneration)return;JSONObject item=vault.addDocument(name,mime,bytes);sendToUi("documentAdded",new JSONObject().put("item",item));
+                new DocumentOcr(this).recognize(bytes,mime,new DocumentOcr.Listener(){
+                    public void result(JSONObject fields){if(generation!=dataGeneration)return;JSONObject j=new JSONObject();try{j.put("fields",fields).put("documentId",item.getString("id"));}catch(Exception ignored){}sendToUi("ocrResult",j);importDocuments(uris,index+1,generation);}
+                    public void error(String message){if(generation!=dataGeneration)return;sendToUi("ocrError",result(false,message));importDocuments(uris,index+1,generation);}
+                });
+            }catch(Exception e){if(generation==dataGeneration){sendToUi("documentError",result(false,e.getMessage()));importDocuments(uris,index+1,generation);}}
+        });
+    }
+    private boolean accepts(String mime){String[] types=uploadParams==null?null:uploadParams.getAcceptTypes();if(types==null||types.length==0)return true;
+        for(String group:types)for(String type:group.split(",")){type=type.trim().toLowerCase(Locale.ROOT);if(type.isEmpty()||type.equals("*/*")||type.equals(mime)||(type.equals("image/*")&&mime.startsWith("image/"))||(type.equals(".pdf")&&mime.equals("application/pdf"))||((type.equals(".jpg")||type.equals(".jpeg"))&&mime.equals("image/jpeg"))||(type.equals(".png")&&mime.equals("image/png")))return true;}return false;}
+    private void finishUpload(Uri[] uris){if(portalFileCallback!=null){portalFileCallback.onReceiveValue(uris);portalFileCallback=null;uploadParams=null;}}
+    private void offerPortalDocuments(){
+        try{
+            JSONArray docs=vault.documents();ArrayList<JSONObject> valid=new ArrayList<>();for(int i=0;i<docs.length();i++)if(accepts(docs.getJSONObject(i).getString("mime")))valid.add(docs.getJSONObject(i));
+            ArrayList<String> names=new ArrayList<>();names.add("Phone se nayi file choose karein");for(JSONObject item:valid)names.add(item.getString("name"));
+            final String url=siteWeb.getUrl();new AlertDialog.Builder(this).setTitle("Website ke liye document choose karein").setItems(names.toArray(new String[0]),(dialog,which)->{
+                if(which==0){launchPortalPicker();return;}
+                JSONObject item=valid.get(which-1);new AlertDialog.Builder(this).setTitle("Upload selected document?").setMessage(item.optString("name")+"\n\nWebsite: "+Uri.parse(url).getHost()+"\nIs document ki copy website ko milegi.")
+                    .setPositiveButton("Upload",(v,w)->{if(url.equals(siteWeb.getUrl()))finishUpload(new Uri[]{Uri.parse("content://"+getPackageName()+".documents/"+item.optString("id"))});else finishUpload(null);})
+                    .setNegativeButton("Cancel",(v,w)->finishUpload(null)).setOnCancelListener(v->finishUpload(null)).show();
+            }).setNegativeButton("Cancel",(v,w)->finishUpload(null)).setOnCancelListener(v->finishUpload(null)).show();
+        }catch(Exception e){launchPortalPicker();}
+    }
+    private void launchPortalPicker(){try{Intent intent=uploadParams.createIntent();intent.addCategory(Intent.CATEGORY_OPENABLE);startActivityForResult(intent,PICK_PORTAL_UPLOAD);}catch(Exception e){finishUpload(null);Toast.makeText(this,"Document picker unavailable",Toast.LENGTH_SHORT).show();}}
+    @Override protected void onActivityResult(int request,int response,Intent intent){super.onActivityResult(request,response,intent);
+        if(request==PICK_DOCUMENT){ArrayList<Uri> uris=new ArrayList<>();if(response==RESULT_OK&&intent!=null){if(intent.getClipData()!=null)for(int i=0;i<Math.min(15,intent.getClipData().getItemCount());i++)uris.add(intent.getClipData().getItemAt(i).getUri());else if(intent.getData()!=null)uris.add(intent.getData());}
+            if(uris.isEmpty())sendToUi("importDone",result(true,"File selection cancelled"));else importDocuments(uris,0,dataGeneration);
+        }else if(request==PICK_PORTAL_UPLOAD)finishUpload(WebChromeClient.FileChooserParams.parseResult(response,intent));
+    }
+    @Override protected void onResume(){super.onResume();active=true;handler.removeCallbacks(periodicScan);handler.postDelayed(periodicScan,1200);if(appWeb!=null)appWeb.onResume();if(siteWeb!=null)siteWeb.onResume();}
+    @Override protected void onPause(){active=false;handler.removeCallbacks(periodicScan);if(appWeb!=null)appWeb.onPause();if(siteWeb!=null)siteWeb.onPause();CookieManager.getInstance().flush();super.onPause();}
+    @Override protected void onDestroy(){destroyed=true;active=false;handler.removeCallbacksAndMessages(null);finishUpload(null);io.shutdownNow();if(siteWeb!=null)siteWeb.destroy();if(appWeb!=null){appWeb.removeJavascriptInterface("AvsarGoNative");appWeb.destroy();}super.onDestroy();}
+    @Override public void onBackPressed(){if(browserShown){if(siteWeb.canGoBack())siteWeb.goBack();else showChat();return;}
+        appWeb.evaluateJavascript("window.avsargoHandleBack?window.avsargoHandleBack():false",value->{if(!"true".equals(value))finish();});}
+
+    public final class PrivateBridge {
+        @JavascriptInterface public String state(){try{
+            JSONObject settings=vault.aiSettings();settings.put("hasKey",!vault.getGeminiKey().isEmpty());
+            return new JSONObject().put("profile",vault.getProfile()).put("documents",vault.documents()).put("ai",settings).put("workspace",vault.workspace()).toString();
+        }catch(Exception e){return "{\"profile\":{},\"documents\":[],\"ai\":{},\"workspace\":{},\"storageError\":true}";}}
+        @JavascriptInterface public void saveWorkspace(String raw){if(erasing||destroyed)return;final int gen=dataGeneration;io.execute(()->{try{if(gen==dataGeneration){JSONObject incoming=new JSONObject(raw),safe=new JSONObject();JSONArray messages=incoming.optJSONArray("messages"),filtered=new JSONArray();if(messages!=null)for(int i=Math.max(0,messages.length()-80);i<messages.length();i++){JSONObject m=messages.optJSONObject(i);if(m==null)continue;String role=m.optString("role");if(!role.equals("assistant")&&!role.equals("user"))continue;String text=m.optString("text");filtered.put(new JSONObject().put("role",role).put("text",text.substring(0,Math.min(5000,text.length()))).put("cloud",m.optBoolean("cloud",role.equals("user"))));}
+                safe.put("messages",filtered).put("service",incoming.optString("service").substring(0,Math.min(40,incoming.optString("service").length()))).put("custom",incoming.optString("custom").substring(0,Math.min(120,incoming.optString("custom").length())));vault.saveWorkspace(safe);}}
+            catch(Exception e){sendToUi("storageError",result(false,"Chat save nahi hua"));}});}
+        @JavascriptInterface public void pickDocument(){if(erasing||destroyed)return;runOnUiThread(()->{try{Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*");i.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"application/pdf","image/jpeg","image/png"});i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);startActivityForResult(i,PICK_DOCUMENT);}catch(ActivityNotFoundException e){sendToUi("documentError",result(false,"Phone document picker unavailable"));sendToUi("importDone",result(false,"Picker unavailable"));}});}
+        @JavascriptInterface public void saveProfile(String raw){if(erasing||destroyed)return;final int gen=dataGeneration;io.execute(()->{try{JSONObject incoming=new JSONObject(raw);Map<String,String> values=new LinkedHashMap<>();for(String k:ProfileRules.KEYS)values.put(k,incoming.optString(k));JSONObject safe=new JSONObject(ProfileRules.validate(values));if(safe.length()==0)throw new IllegalArgumentException("Ek detail review karein");if(gen!=dataGeneration)return;vault.saveProfile(safe);handler.post(()->cachedProfile=safe);sendToUi("profileSaved",result(true,"Profile securely saved"));}catch(Exception e){sendToUi("profileSaved",result(false,e.getMessage()));}});}
+        @JavascriptInterface public void removeDocument(String id){io.execute(()->{try{vault.removeDocument(id);sendToUi("documentRemoved",result(true,"Document removed"));}catch(Exception e){sendToUi("documentRemoved",result(false,"Document delete failed"));}});}
+        @JavascriptInterface public void rescanDocument(String id){final int gen=dataGeneration;io.execute(()->{try{new DocumentOcr(MainActivity.this).recognize(vault.documentData(id),vault.documentMeta(id).getString("mime"),new DocumentOcr.Listener(){public void result(JSONObject f){if(gen!=dataGeneration)return;JSONObject j=new JSONObject();try{j.put("fields",f);}catch(Exception ignored){}sendToUi("ocrResult",j);}public void error(String e){if(gen==dataGeneration)sendToUi("ocrError",result(false,e));}});}catch(Exception e){sendToUi("ocrError",result(false,"Saved document scan unavailable"));}});}
+        @JavascriptInterface public void saveAiSettings(String raw){io.execute(()->{try{JSONObject input=new JSONObject(raw);String model=input.optString("model","").trim();if(!model.isEmpty()&&!model.matches("[a-zA-Z0-9._-]{1,100}"))throw new IllegalArgumentException("Model ID invalid");String key=input.optString("key","").trim();if(input.optBoolean("removeKey"))vault.setGeminiKey("");else if(!key.isEmpty())vault.setGeminiKey(key);vault.saveAiSettings(new JSONObject().put("enabled",input.optBoolean("enabled")).put("model",model));sendToUi("keySaved",result(true,"AI settings saved"));}catch(Exception e){sendToUi("keySaved",result(false,e.getMessage()));}});}
+        @JavascriptInterface public void requestAi(String raw){final int gen=dataGeneration;
+            try{JSONObject settings=vault.aiSettings();if(!settings.optBoolean("enabled")){sendToUi("aiReply",new JSONObject().put("ok",false).put("text","Cloud chat is disabled. Enable it in Settings."));return;}
+                JSONObject request=new JSONObject(raw);new GeminiAssistant(vault).sendConversation(request,(text,ok)->{if(gen!=dataGeneration||destroyed)return;JSONObject j=new JSONObject();try{j.put("ok",ok).put("text",text).put("requestId",request.optString("requestId"));}catch(Exception ignored){}sendToUi("aiReply",j);});
+            }catch(Exception e){JSONObject j=new JSONObject();try{j.put("ok",false).put("text","AI request invalid");}catch(Exception ignored){}sendToUi("aiReply",j);}
+        }
+        @JavascriptInterface public void openDemo(){runOnUiThread(()->showBrowser(ASSETS+"demo/login.html"));}
+        @JavascriptInterface public void openPortal(String url){runOnUiThread(()->showBrowser(url.trim()));}
+        @JavascriptInterface public void eraseLocalData(){erasing=true;dataGeneration++;runOnUiThread(()->{autoOrigin="";cachedProfile=new JSONObject();navigationId++;finishUpload(null);siteWeb.stopLoading();siteWeb.loadUrl("about:blank");siteWeb.clearHistory();siteWeb.clearCache(true);CookieManager.getInstance().removeAllCookies(null);WebStorage.getInstance().deleteAllData();if(browserShown)showChat();});
+            io.execute(()->{try{vault.eraseAll();JSONObject done=result(true,"Local documents, profile, chat, AI key aur website sessions deleted");
+                handler.post(()->{if(destroyed)return;appWeb.evaluateJavascript("window.AvsarGoEvent&&window.AvsarGoEvent(\"erased\","+done.toString()+")",value->erasing=false);});}catch(Exception e){erasing=false;sendToUi("erased",result(false,"Some local data could not be deleted"));}});}
+    }
+}

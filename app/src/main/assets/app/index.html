@@ -1,0 +1,33 @@
+<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'"><meta name="theme-color" content="#f7f9f8"><title>AvsarGo AI — Mobile</title><link rel="stylesheet" href="style.css"/></head>
+<body>
+<div class="shell" id="shell">
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <div class="drawer-top"><div class="brand"><span class="brand-mark">✦</span><div><strong>AvsarGo AI</strong><small>Application assistant</small></div></div><button class="icon-button" id="closeMenu" aria-label="Close menu">✕</button></div>
+    <button class="nav-item selected" id="newChat"><span>✎</span> New chat</button>
+    <div class="nav-caption">YOUR WORKSPACE</div>
+    <button class="nav-item" id="openDocs"><span>▤</span> My documents <span class="count" id="docCount">0</span></button>
+    <button class="nav-item" id="openProfile"><span>♙</span> Verified profile</button>
+    <button class="nav-item" id="openBrowser"><span>↗</span> Open in-app browser</button>
+    <div class="drawer-bottom"><button class="nav-item" id="openSettings"><span>⚙</span> Settings</button><div class="independent">Independent assistance • Not affiliated with government</div></div>
+  </aside>
+  <div class="scrim" id="scrim"></div>
+  <div class="content">
+    <header class="topbar"><button class="icon-button" id="menuButton" aria-label="Menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button><div class="topbar-brand"><b>AvsarGo AI</b></div><button class="icon-button profile-btn" id="profileShortcut" aria-label="Profile"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-8 16-8 16 0"/></svg></button></header>
+    <main id="chatScroll" class="chat-scroll">
+      <section class="welcome" id="welcome">
+        <div class="hero-icon">✦</div><h1>Aaj kaunsa form <span>bharna hai?</span></h1><p>Form ka naam batayein. Documents upload karein, details review karein aur application app ke andar complete karein.</p>
+        <div class="suggestions"><button data-prompt="Mujhe PAN card banana hai">PAN card <span>↗</span></button><button data-prompt="Mujhe driving licence ke liye apply karna hai">Driving licence <span>↗</span></button><button data-prompt="Mujhe SSC ka form bharna hai">SSC application <span>↗</span></button><button data-prompt="Income certificate banwana hai">Income certificate <span>↗</span></button></div>
+        <div class="notice"><svg viewBox="0 0 24 24"><path d="M12 3l9 4v5c0 6-3.8 9.5-9 11C6.8 21.5 3 18 3 12V7l9-4z"/><path d="M8 12l3 3 5-6"/></svg><span>Login, OTP, CAPTCHA, payment aur final submit <b>aapke control mein</b> rahenge.</span></div>
+      </section>
+      <div id="messages" class="messages" aria-live="polite"></div>
+    </main>
+    <div class="composer-wrap">
+      <div class="progress-pill" id="progressPill" hidden><span class="status-dot"></span><span id="progressText">Document step</span><button id="progressAction">Continue →</button></div>
+      <div class="composer"><button id="attach" class="attach" aria-label="Upload document" title="Upload documents"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button><textarea id="chatInput" rows="1" placeholder="Apna form batayein…"></textarea><button class="send" id="send" aria-label="Send message"><svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button></div>
+      <div class="disclaimer">Independent assistant · Documents processed on your phone by default</div>
+    </div>
+  </div>
+</div>
+<div class="modal-overlay" id="modal" role="dialog" aria-modal="true" aria-label="AvsarGo action" hidden><div class="sheet"><div class="sheet-handle"></div><div class="sheet-head"><div><span class="eyebrow" id="sheetEyebrow">AVSARGO</span><h2 id="sheetTitle">Action</h2></div><button class="icon-button" id="closeSheet" aria-label="Close">✕</button></div><div class="sheet-body" id="sheetBody"></div><div class="sheet-actions" id="sheetActions"></div></div></div>
+<div id="toast" class="toast" hidden></div>
+<script src="app.js"></script></body></html>
