@@ -1,6 +1,8 @@
 # AvsarGo AI V12 — Android mobile source fixes
 
-**This is updated Android source, not an APK. An APK has NOT been compiled, signed or tested in this session.** The Android SDK and Gradle are unavailable here and the download servers are blocked by this environment's network restrictions. No connected GitHub repository was available for a remote build. Do not interpret the included workflow or test results as a successful native build.
+**An installable Android test APK was built successfully on 10 October 2026.** GitHub Actions passed all 48 regression checks, native Android lint, `assembleDebug`, and APK package/signature verification. The downloaded artifact and APK SHA-256 values were checked. Installation and testing on a physical Android phone are still pending.
+
+Test APK: `AvsarGo_AI_V12_Android_Test.apk` (47,054,007 bytes). Application ID: `com.avsargo.mobile.beta`; version: `12.0-test`; Android 8 or newer. APK SHA-256: `bc4d52d0c5657e0b62d9fc504aaa638342261a7a75666b75ff3bfffe0776c216`.
 
 V12 follows the recovered AI form-filling chat requirements: Android-first, a single ChatGPT-style chat, upload documents before opening the form, an in-app browser in place of chat, approved autofill across form steps, and prompts when the applicant is needed. This is a separate project from the Worker/Creator/Admin TaskEarn platform; no TaskEarn source, accounts, payments or database were modified.
 
@@ -20,8 +22,9 @@ V12 follows the recovered AI form-filling chat requirements: Android-first, a si
 - Adds loading/error status, modern Android insets and Back handling, and pauses scanning when the app is backgrounded.
 - Deletion now removes documents, profile, chat, AI configuration/key, website storage and login cookies; it invalidates pending operations and the active fill session. Corrupt document metadata does not prevent sweeping stored documents.
 - Real Gemini chat accepts conversation context when a key and cloud-chat consent are configured. Local document events, filenames and profile fields are excluded from automatically sent chat context. No key is embedded. HTTP redirects are disabled and provider errors restore the send button. There is no automatic provider/model fallback. If no live AI connection exists, the app identifies its local preparation tools clearly.
+- Fixes two native compilation errors in OCR listener error callbacks by explicitly calling the activity's result helper. SDK setup requests `platform-tools` rather than the retired `tools` package.
 
-## Phone flow after an actual APK build
+## Phone test flow
 
 1. Type the application/form name in chat. With a configured AI connection, the model responds in the user's Hindi/English/Hinglish style. Local checklists remain usable without a cloud key.
 2. Tap Upload documents, consent and choose files. OCR uses bundled Latin and Devanagari ML Kit recognition on the phone. First three pages of a PDF are scanned; files have an 8 MB limit and the vault has a 15-document limit.
@@ -36,11 +39,13 @@ Sites that block WebView, use unapproved external domains, cross-origin frames, 
 
 The project uses application ID `com.avsargo.mobile.beta`, versionCode 12, minSdk 26 (Android 8), target/compileSdk 35, JDK 17, AGP 8.7.3 and Gradle 8.10.2. Existing V11 vault filenames/key alias are retained.
 
-### GitHub Actions — complete build recipe included, NOT executed
+### GitHub Actions — successful verified build
 
-Place the contents of this project folder at the root of a private repository, including `.github`. In Actions, run **Build AvsarGo V12 Android test APK**. The workflow runs regression checks, installs SDK 35, runs native lint/compilation, verifies the APK signature/package, and uploads `AvsarGo-AI-V12-Android-Test-APK` only after success. The contained installable filename is `AvsarGo_AI_V12_Android_Test.apk`.
+The successful [build run](https://github.com/VoidmeshAI/avsargo-ai-v2-render/actions/runs/38073731249) used source commit `f2a64eb4cf5c8c5979a16632985ac01c8320cec3` on branch `android/v12-test-apk`. It ran regression checks, installed SDK 35, passed native lint/compilation, verified the APK signature/package, and uploaded `AvsarGo-AI-V12-Android-Test-APK`. The installable filename is `AvsarGo_AI_V12_Android_Test.apk`.
 
-The workflow does not deploy a website, use Railway/Render, touch TaskEarn or publish to Google Play. GitHub Actions availability/permissions are needed. It cannot be run from an unconnected repository in this session.
+To repeat the build, place this project's contents at a repository root, including `.github`, and run **Build AvsarGo V12 Android test APK** in Actions. The output uses a debug signing certificate for testing. A future build signed with a different certificate cannot update an installed copy without uninstalling it first; uninstalling removes that copy's local data.
+
+The workflow does not deploy a website, use Railway/Render, touch TaskEarn or publish to Google Play. GitHub Actions availability and repository access are needed to repeat it.
 
 ### Developer machine
 
@@ -55,11 +60,13 @@ The distribution checksum comes from [Gradle's official checksum reference](http
 - 11 deterministic chat/workflow checks using a simulated native bridge.
 - JavaScript syntax checks and parsing of all six native Java source files.
 - XML parsing and static bridge/security checks.
+- GitHub Actions: native Android SDK compilation, `lintDebug`, `assembleDebug`, package metadata and APK Signature Scheme v2 verification passed.
+- Downloaded artifact SHA-256 matched GitHub's artifact digest; APK SHA-256 matched the checksum generated in that successful build.
 
-The DOM harness is **not Chromium, Android WebView or an emulator**. The native Java parse is **not compilation against the Android SDK**. No APK installation, on-device OCR, keystore/content-provider operation, native lint, live Gemini response or government portal flow has been executed here. See `docs/V12_AUDIT_REPORT.md` and `docs/ANDROID_TEST_PLAN.md`.
+The DOM harness is **not Chromium, Android WebView or an emulator**. Native compilation and lint were completed by GitHub Actions. No APK installation, on-device OCR, keystore/content-provider operation, live Gemini response or government portal flow has been executed here. See `docs/V12_AUDIT_REPORT.md` and `docs/ANDROID_TEST_PLAN.md`.
 
 ## Scope still pending
 
-The attached V11 source is a single-user on-device application. V12 does not add a production customer/admin backend, cloud login/sync, subscription/credits, payment collection, live vacancy/eligibility database, portal-specific certified adapters or support for other AI providers. Those broader earlier concepts are not represented as completed features. A real AI key/consent and a successful native build/phone test are needed for the requested live-chat Android trial.
+The attached V11 source is a single-user on-device application. V12 does not add a production customer/admin backend, cloud login/sync, subscription/credits, payment collection, live vacancy/eligibility database, portal-specific certified adapters or support for other AI providers. Those broader earlier concepts are not represented as completed features. Configure a real Gemini key and cloud-chat consent in Settings to test actual AI responses. Phone and live-portal testing remain pending.
 
 Technical references: [Android in-app content](https://developer.android.com/develop/ui/views/layout/webapps/load-local-content), [WebView](https://developer.android.com/develop/ui/views/layout/webapps/webview), [ML Kit Android OCR](https://developers.google.com/ml-kit/vision/text-recognition/v2/android), [Gemini API](https://ai.google.dev/api), [Railway Recruitment Control Board](https://www.rrcb.gov.in/rrbs.html), [SSC](https://ssc.gov.in/).

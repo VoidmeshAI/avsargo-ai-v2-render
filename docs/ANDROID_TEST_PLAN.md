@@ -1,8 +1,8 @@
-# Native Android acceptance — PENDING
+# Android test APK — build verified, phone acceptance PENDING
 
-These tests must be performed on an actual compiled APK. None has been marked passed by source/DOM checks.
+The test APK compiled successfully in [GitHub Actions](https://github.com/VoidmeshAI/avsargo-ai-v2-render/actions/runs/38073731249). The remaining checks must be performed on an Android phone or emulator; source/DOM checks do not establish those results.
 
-- [ ] CI lint, assembleDebug, APK package/signature verification pass.
+- [x] CI lint, assembleDebug, APK package/signature verification passed; downloaded artifact/APK checksums match.
 - [ ] Install and launch on Android 8 and a modern Android 15/16 device. Status/navigation bars and keyboard do not hide the composer or portal controls.
 - [ ] Chat remains one main screen; Settings contains AI/test controls. Chat/service restore after restarting the app.
 - [ ] Configure a test Gemini key and consent; verify actual responses and follow-up conversation. No key/consent shows an accurate setup state.
