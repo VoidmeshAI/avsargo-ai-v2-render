@@ -1,0 +1,27 @@
+name: Verify AvsarGo owner setup in Chrome and Safari
+on:
+  workflow_dispatch:
+  push:
+    branches: ['android/v13-polished-admin']
+    paths: ['server/**', 'scripts/admin-setup-check.mjs', '.github/workflows/admin-ui-check.yml']
+permissions:
+  contents: read
+jobs:
+  admin-setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify backend authentication and persistence
+        run: node --test server/test/*.test.mjs
+      - name: Install Chrome and Safari browser engines
+        run: |
+          npm --prefix /tmp/avsargo-browser install playwright@1.56.1
+          /tmp/avsargo-browser/node_modules/.bin/playwright install --with-deps chromium webkit
+      - name: Verify private owner links, refresh and account creation
+        env:
+          PLAYWRIGHT_PATH: /tmp/avsargo-browser/node_modules/playwright
+        run: node scripts/admin-setup-check.mjs
