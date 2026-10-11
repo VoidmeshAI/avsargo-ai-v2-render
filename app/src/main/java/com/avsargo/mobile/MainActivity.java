@@ -177,7 +177,7 @@ public final class MainActivity extends Activity {
         if(!browserShown||!active||portalLoading||helperJs.isEmpty()||dialogVisible||scanBusy||!allowedUrl(siteWeb.getUrl()))return;
         scanBusy=true;final int nav=navigationId,generation=dataGeneration;final String url=siteWeb.getUrl();
         siteWeb.evaluateJavascript("("+helperJs+")(\"scan\",null)",raw->{
-            scanBusy=false;if(destroyed||!browserShown||nav!=navigationId||generation!=dataGeneration||!url.equals(siteWeb.getUrl()))return;
+            if(destroyed||nav!=navigationId||generation!=dataGeneration||!url.equals(siteWeb.getUrl()))return;scanBusy=false;if(!browserShown)return;
             try{
                 JSONObject scan=parseJs(raw);if(!scan.optBoolean("ok"))return;
                 JSONArray candidates=scan.optJSONArray("candidates"),unknown=new JSONArray();
@@ -186,7 +186,7 @@ public final class MainActivity extends Activity {
                 if(formAiConsent&&unknown.length()>0&&!sig.equals(lastAiSignature)){
                     lastAiSignature=sig;scanBusy=true;browserStatus.setText("AI form labels ko profile se match kar raha hai…");final JSONArray descriptors=unknown;
                     io.execute(()->{JSONObject mapped=null;try{mapped=backend.mapForm(descriptors);}catch(Exception ignored){}final JSONObject response=mapped;
-                        handler.post(()->{if(destroyed||!browserShown||nav!=navigationId||generation!=dataGeneration||!url.equals(siteWeb.getUrl()))return;scanBusy=false;aiMappings=new JSONObject();aiMappingSignature=sig;
+                        handler.post(()->{if(destroyed||nav!=navigationId||generation!=dataGeneration||!url.equals(siteWeb.getUrl()))return;scanBusy=false;if(!browserShown){lastAiSignature="";return;}aiMappings=new JSONObject();aiMappingSignature=sig;
                             try{JSONArray maps=response==null?null:response.optJSONArray("mappings");if(maps!=null)for(int i=0;i<maps.length();i++){JSONObject m=maps.getJSONObject(i);if(Arrays.asList(ProfileRules.KEYS).contains(m.optString("key")))aiMappings.put(m.getString("fieldId"),m.getString("key"));}}catch(Exception ignored){}
                             offerScan(scan,manual,nav,url);});});return;
                 }
@@ -236,7 +236,7 @@ public final class MainActivity extends Activity {
             JSONObject custom=new JSONObject();try{for(Map.Entry<String,View> e:inputs.entrySet()){String value=e.getValue() instanceof Spinner?((Spinner)e.getValue()).getSelectedItemPosition()>0?((Spinner)e.getValue()).getSelectedItem().toString():"":((EditText)e.getValue()).getText().toString().trim();if(!value.isEmpty())custom.put(e.getKey(),value);}
                 if(custom.length()==0){Toast.makeText(this,"Ek detail enter karein",Toast.LENGTH_SHORT).show();return;}
                 JSONObject payload=new JSONObject().put("fields",new JSONObject()).put("custom",custom).put("signature",signature);d.dismiss();
-                siteWeb.evaluateJavascript("("+helperJs+")(\"fill\","+payload+")",raw->{if(nav!=navigationId||!url.equals(siteWeb.getUrl()))return;try{JSONObject r=parseJs(raw);browserStatus.setText(r.optBoolean("ok")?r.optJSONArray("filled").length()+" extra details filled. Portal par check karein.":"Page badla hai. Assist dobara press karein.");lastPromptSignature=signature;}catch(Exception ignored){}});
+                siteWeb.evaluateJavascript("("+helperJs+")(\"fill\","+payload+")",raw->{if(nav!=navigationId||!url.equals(siteWeb.getUrl()))return;try{JSONObject r=parseJs(raw);JSONArray filled=r.optJSONArray("filled");int count=filled==null?0:filled.length();browserStatus.setText(r.optBoolean("ok")?count+" extra details filled. Portal par check karein.":"Page badla hai. Assist dobara press karein.");if(r.optBoolean("ok")&&count>0)recordFilled(count);lastPromptSignature=signature;}catch(Exception ignored){}});
             }catch(Exception e){Toast.makeText(this,"Details check karein",Toast.LENGTH_SHORT).show();}
         }));d.show();
     }
