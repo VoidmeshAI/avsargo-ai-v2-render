@@ -13,7 +13,7 @@ const app=await createApp({store,origin,setupHash:process.env.ADMIN_SETUP_HASH,s
 const server=http.createServer(async(req,res)=>{
   try{
     const pathname=new URL(req.url,origin).pathname;
-    let size=0,parts=[];for await(const chunk of req){size+=chunk.length;if(size>65536){res.writeHead(413);res.end('Request too large');return;}parts.push(chunk);}
+    let size=0,parts=[];for await(const chunk of req){size+=chunk.length;if(size>262144){res.writeHead(413);res.end('Request too large');return;}parts.push(chunk);}
     const headers=new Headers();for(const [k,v]of Object.entries(req.headers))if(v!==undefined)headers.set(k,Array.isArray(v)?v.join(','):v);
     const options={method:req.method,headers};if(!['GET','HEAD'].includes(req.method))options.body=Buffer.concat(parts);
     const response=await app.fetch(new Request(origin+pathname,options));

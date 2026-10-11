@@ -65,7 +65,7 @@
     message('user',text);$('chatInput').value='';grow();const id=infer(text);if(id){currentService=id;currentCustomService=id==='general'?text.slice(0,120):'';progress();persist();}
     refresh();if(onPhone&&workspace.ai.enabled&&workspace.server?.ai?.ready){
       awaiting=true;$('send').disabled=true;requestId=String(Date.now())+Math.random().toString(36).slice(2);pendingNode=message('assistant','',[],false);pendingNode.classList.add('typing');const dots=node('div','thinking');dots.setAttribute('aria-label','AvsarGo is thinking');for(let i=0;i<3;i++)dots.append(node('span'));pendingNode.lastElementChild.append(dots);
-      try{native.requestAi(JSON.stringify({requestId,messages:chatMessages.filter(m=>m.cloud===true||m.role==='user').slice(-16)}));}catch(_){awaiting=false;$('send').disabled=false;pendingNode?.remove();notify('AI connection unavailable');}return;
+      try{native.requestAi(JSON.stringify({requestId,messages:chatMessages.filter(m=>m.cloud===true||m.role==='user').slice(-16).map(m=>({role:m.role,text:m.text.slice(0,5000)}))}));}catch(_){awaiting=false;$('send').disabled=false;pendingNode?.remove();notify('AI connection unavailable');}return;
     }
     if(id){const s=spec();message('assistant',s.name+' ke liye pehle documents taiyar karte hain.\n\nIndicative checklist:\n'+s.docs.map(x=>'• '+x).join('\n')+'\n\n'+s.note+'\n\nDocuments upload karo, extracted details review karo, phir app ke andar official form kholenge.',actions());}
     else if(currentService&&/done|next|continue|aage|आगे|ho gay[ao]/i.test(text)){message('assistant','Reviewed profile ready hai to official form app mein khol sakte hain. Login, OTP, CAPTCHA, payment aur final submit aap khud karenge.',[{text:'Open form',action:browserPanel,primary:true}]);}

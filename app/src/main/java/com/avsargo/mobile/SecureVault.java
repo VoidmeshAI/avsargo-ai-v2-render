@@ -120,7 +120,7 @@ public final class SecureVault {
         file("doc_"+id+".sec").delete();
     }
     public synchronized void saveWorkspace(JSONObject data) throws Exception {
-        if(data.toString().length()>180000)throw new IllegalArgumentException("Chat storage limit reached");
+        if(data.toString().length()>480000)throw new IllegalArgumentException("Chat storage limit reached");
         writeEncrypted("workspace.sec",data.toString().getBytes(StandardCharsets.UTF_8));
     }
     public synchronized JSONObject workspace() throws Exception {

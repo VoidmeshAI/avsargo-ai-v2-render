@@ -49,7 +49,7 @@ export async function createApp({store,setupHash,setupExpires=Date.now()+8640000
   function limit(key,count,period=60000){const now=clock();let r=rates.get(key);if(!r||now-r.at>=period){r={at:now,count:0};rates.set(key,r);}if(++r.count>count)fail(429,'Too many requests. Please try later.');if(rates.size>10000)for(const[k,v]of rates)if(now-v.at>86400000)rates.delete(k);}
   const ip=req=>hash(ipSalt+'|'+(req.headers.get('x-forwarded-for')?.split(',').at(-1)?.trim()||'local'));
   const json=(data,status=200,extra={})=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json;charset=utf-8','cache-control':'no-store',...extra}});
-  async function body(req){const raw=await req.text();if(Buffer.byteLength(raw)>65536)fail(413,'Request is too large');try{return JSON.parse(raw);}catch{fail(400,'Invalid JSON');}}
+  async function body(req){const raw=await req.text();if(Buffer.byteLength(raw)>262144)fail(413,'Request is too large');try{return JSON.parse(raw);}catch{fail(400,'Invalid JSON');}}
   function sameOrigin(req){if(req.headers.get('origin')!==origin)fail(403,'Request origin rejected');}
   function session(req,write=false){const token=req.headers.get('cookie')?.match(/(?:^|;\s*)av_admin=([^;]+)/)?.[1];const s=token&&sessions.get(hash(token));if(!s||s.expire<clock()){if(token)sessions.delete(hash(token));fail(401,'Sign in to continue');}if(write){sameOrigin(req);if(!equal(req.headers.get('x-csrf-token')||'',s.csrf))fail(403,'Request verification failed');}return s;}
   const cookie=(value,age)=>'av_admin='+value+'; Path=/; HttpOnly; SameSite=Strict; Max-Age='+age+(secureCookies?'; Secure':'');
@@ -132,7 +132,7 @@ export async function createApp({store,setupHash,setupExpires=Date.now()+8640000
     }
     const webhook=path.match(/^\/api\/payments\/webhook\/(test|live)$/);
     if(webhook&&method==='POST'){
-      const secret=paymentKeys(state,webhook[1]).webhook;if(!secret)fail(503,'Webhook secret is not configured');const raw=await req.text();if(Buffer.byteLength(raw)>65536)fail(413,'Webhook too large');const sig=createHmac('sha256',secret).update(raw).digest('hex');if(!equal(sig,req.headers.get('x-razorpay-signature')||''))fail(400,'Invalid webhook signature');let data;try{data=JSON.parse(raw);}catch{fail(400,'Invalid webhook');}
+      const secret=paymentKeys(state,webhook[1]).webhook;if(!secret)fail(503,'Webhook secret is not configured');const raw=await req.text();if(Buffer.byteLength(raw)>262144)fail(413,'Webhook too large');const sig=createHmac('sha256',secret).update(raw).digest('hex');if(!equal(sig,req.headers.get('x-razorpay-signature')||''))fail(400,'Invalid webhook signature');let data;try{data=JSON.parse(raw);}catch{fail(400,'Invalid webhook');}
       if(['payment.captured','order.paid'].includes(data.event)){const p=data.payload?.payment?.entity,o=state.orders[p?.order_id];if(o&&o.mode===webhook[1]&&p.status==='captured'&&p.amount===o.amount&&p.currency==='INR'&&/^pay_[a-zA-Z0-9]+$/.test(p.id||''))await mutate(s=>settle(s,p.order_id,p.id));}return json({ok:true});
     }
     fail(404,'Not found');
