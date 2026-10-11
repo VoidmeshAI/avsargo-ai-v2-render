@@ -3,6 +3,7 @@ import {readFile} from 'node:fs/promises';
 import {createProviderClient,generateReply,generateSearchReply,testSavedProvider} from './ai-provider.mjs';
 import {documentsInput,documentPrompt,documentSchema,parseDocumentResult,mappingInput,mappingPrompt,mappingSchema,mappingSchemaFor,parseMappingResult,workflowContext} from './application-ai.mjs';
 
+import {officialResearch,officialResearchPrompt} from './official-research.mjs';
 import {knownApplication,publicCatalog,officialFormUrl,isLiveQuestion,publicQuery,verifySearchSources,searchPrompt} from './application-catalog.mjs';
 
 const random=()=>randomBytes(32).toString('base64url');
@@ -68,12 +69,12 @@ export async function createApp({store,setupHash,setupExpires=Date.now()+8640000
   function deviceStatus(id){const d=state.devices[id],used=d.day===date()?d.used:0;return {plusUntil:d.plusUntil||0,paid:paid(d),used,dailyLimit:paid(d)?state.config.ai.paidDailyLimit:state.config.ai.freeDailyLimit};}
   async function provider(url,options){let res;try{res=await fetchImpl(url,{...options,redirect:'error',signal:AbortSignal.timeout(35000)});}catch{fail(502,'Provider connection failed. Try again.');}if(!res.ok){if(res.status===401||res.status===403)fail(502,'Provider rejected the configured key. Contact support.');if(res.status===429)fail(503,'Provider limit reached. Try again later.');fail(502,'Provider request failed (HTTP '+res.status+')');}try{return await res.json();}catch{fail(502,'Provider returned an unreadable response');}}
   const researchCache=new Map();
+  let searchUnavailableUntil=0;
   async function research(query){
-    const safe=publicQuery(query),cacheKey=hash(safe.toLowerCase()),cached=researchCache.get(cacheKey);if(cached&&clock()-cached.at<600000)return cached.result;
-    const c=state.config.ai,result=await generateSearchReply(aiClient,{...c,key:aiKey(state),query:'Today: '+new Date(clock()).toISOString().slice(0,10)+'\n'+safe,prompt:searchPrompt,maxOutputTokens:3000});
-    const sources=await verifySearchSources(result,fetchImpl);
-    const reply={text:sources.length?result.text:'Abhi official sources se is result ko verify nahi kar paya. Dobara search kar sakte hain.',sources,suggestions:result.suggestions,searchedAt:new Date(clock()).toISOString(),live:true};
-    if(sources.length){researchCache.set(cacheKey,{at:clock(),result:reply});if(researchCache.size>200)researchCache.delete(researchCache.keys().next().value);}return reply;
+    const safe=publicQuery(query),cacheKey=hash(safe.toLowerCase()),cached=researchCache.get(cacheKey);if(cached&&clock()-cached.at<600000)return cached.result;const c=state.config.ai;let result,sources=[],mode='web-search';
+    if(clock()>=searchUnavailableUntil)try{result=await generateSearchReply(aiClient,{...c,key:aiKey(state),query:'Today: '+new Date(clock()).toISOString().slice(0,10)+'\n'+safe,prompt:searchPrompt,maxOutputTokens:Math.min(3000,state.aiConnection?.outputTokenLimit||8192)});sources=await verifySearchSources(result,fetchImpl);}catch(e){if(!['PROVIDER_QUOTA','PROVIDER_UNAVAILABLE','MODEL_UNAVAILABLE','PROVIDER_REQUEST','PROVIDER_TIMEOUT'].includes(e.code))throw e;searchUnavailableUntil=clock()+15*60000;report({event:'live_search_fallback',code:e.code});}
+    if(!sources.length){mode='official-pages';const reference=await officialResearch(safe,fetchImpl);sources=reference.sources;result={text:sources.length?await generateReply(aiClient,{...c,key:aiKey(state),prompt:officialResearchPrompt,messages:[{role:'user',text:JSON.stringify({today:new Date(clock()).toISOString().slice(0,10),query:safe,pages:reference.pages})}],maxOutputTokens:Math.min(2400,state.aiConnection?.outputTokenLimit||8192)}):'Official pages could not be reached right now. I could not verify current applications. Try again shortly.',suggestions:''};}
+    const reply={text:result.text,sources,suggestions:result.suggestions||'',searchedAt:new Date(clock()).toISOString(),live:true,researchMode:mode};if(sources.length){researchCache.set(cacheKey,{at:clock(),result:reply});if(researchCache.size>200)researchCache.delete(researchCache.keys().next().value);}return reply;
   }
   async function chat(messages,context){
     const latest=messages.at(-1).text,prior=messages.filter(m=>m.role==='user').at(-2)?.text||'';

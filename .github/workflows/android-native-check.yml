@@ -33,9 +33,12 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: |
-            gradle --no-daemon :app:connectedDebugAndroidTest
+            test_result=0
+            gradle --no-daemon :app:connectedDebugAndroidTest || test_result=$?
             mkdir -p native-verification
             adb pull /sdcard/Android/data/com.avsargo.mobile.beta.v14/files/verification native-verification/ || true
+            adb logcat -d -s chromium > native-verification/chromium.log
+            exit "$test_result"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
