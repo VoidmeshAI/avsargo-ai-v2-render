@@ -7,4 +7,12 @@
 - Added custom greeting/theme/accent/support/announcements/maintenance/official portals.
 - V13 installs separately for testing because the previous CI debug signing key was not retained. V12 is not migrated automatically.
 
-75 regression checks pass locally. Native Android lint/build, signature verification, rendered previews and live HTTPS health/config/admin-access checks passed. On-device OCR/document picker/Android Keystore, official portal compatibility, merchant capture and real AI billing need final phone/account testing.
+The original APK passed 75 regression checks, native Android lint/build, signature verification, rendered previews and live HTTPS health/config/admin-access checks. On-device OCR/document picker/Android Keystore, official portal compatibility and merchant capture need phone/account acceptance. Current AI connection verification is recorded below.
+
+## AI connection repair · 11 October 2026
+
+- Replaced model-list/manual-ID configuration with API key → Save → Test connection. A real AI reply selects and verifies a model automatically, then enables AI.
+- Prefer available low-latency text models and model-supported thinking settings. Show key, billing/quota, model and transport errors separately.
+- Replaced saved-key checkboxes with Remove key, confirmation and Undo removal before saving. Active AI key removal disables AI; key/provider changes require a fresh test.
+- Preserve owner access and encrypted persistent settings. One bounded legacy connection check is recorded so restarts do not repeat provider usage.
+- 32 backend checks and 20 Chromium/WebKit admin scenarios pass. A real saved Gemini key selected Gemini 3.5 Flash-Lite; Android chat API verification returned a reply in 670 ms. The existing APK uses the repair without reinstalling.

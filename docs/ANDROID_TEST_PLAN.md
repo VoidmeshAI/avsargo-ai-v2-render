@@ -1,10 +1,10 @@
 # V13 phone acceptance plan
 
-The V13 APK compiles and passes native lint/signature verification, 75 regressions and phone-size browser UI checks. The backend is deployed; real merchant/AI keys are intentionally absent.
+The V13 APK previously passed native lint/signature verification, 75 original regressions and phone-size browser UI checks. The updated backend passes 32 backend regressions and 20 Chrome/Safari admin scenarios. A real saved-key Gemini reply and the Android chat endpoint are verified. Real merchant capture and physical-device acceptance remain.
 
 1. Install **AvsarGo AI 13** on Android 8+. Check welcome, drawer, keyboard/composer visibility, dark/light themes, message formatting/copy, Back and conversation restore.
 2. Use the private owner setup link, then sign into the in-app admin. Save an app greeting/theme/announcement, refresh Android settings and check that it appears. Test owner sign-out and password change.
-3. Configure a valid AI key, list available models, choose a text/chat model and enable it. Approve cloud consent in Android; chat in Hindi/Hinglish/English. Test long conversations and provider/quota errors. Do not paste applicant secrets into chat.
+3. Choose Gemini or OpenAI, enter an API key, **Save changes**, then **Test connection**. Confirm Connected and the automatically selected model; no Model ID input is required. Check key-removal confirmation, Cancel and Undo removal before saving. Refresh app settings on Android. Approve cloud consent in Android; chat in Hindi/Hinglish/English. Test long conversations and provider/quota errors. Do not paste applicant secrets into chat.
 4. Import multiple PDF/JPG/PNG files with consent; review combined Latin/Devanagari OCR, rotate photos, rescan, correct name components, and reopen the saved profile/documents. Verify picker cancellation and unsupported/oversize files.
 5. In Settings test tools, open the dummy application after approving a dummy profile. Check login, fill only reviewed blank fields, missing-details prompts, Next-page guards, saved-file upload approval, OTP/CAPTCHA and user-only final submission.
 6. Try a relevant official portal. Some portals block embedded browsers or use unsupported frames/labels. Confirm the app pauses safely, preserves entered fields, and offers manual handling without claiming completion.
