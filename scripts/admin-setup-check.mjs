@@ -79,7 +79,7 @@ for(const engine of ['chromium','webkit']){
   });
   await check(browser,engine,'manual setup code survives refresh when browser storage is blocked',async({f,context,page})=>{
    await blockedStorage(context);await page.goto(f.origin+'/admin');await setupReady(page,false);await page.locator('#setup-code').fill(setupToken);
-   assert.equal(new URL(page.url()).hash,'#setup='+setupToken);await page.reload();await setupReady(page);await createOwner(page);
+   await page.waitForURL(f.origin+'/admin#setup='+setupToken);assert.equal(new URL(page.url()).hash,'#setup='+setupToken);await page.reload();await setupReady(page);await createOwner(page);
   });
   await check(browser,engine,'opening a private link in the already loaded tab enables setup',async({f,page})=>{
    await page.goto(f.origin+'/admin');await setupReady(page,false);await page.evaluate(code=>{window.__qaPageMarker='same-page';location.hash='setup='+code;},setupToken);
