@@ -5,5 +5,7 @@ const health=await get('/health');assert.equal(health.status,200);assert.equal((
 const config=await get('/api/app/config');assert.equal(config.status,200);const data=await config.json();assert.ok(data.branding?.name);assert.equal(typeof data.ai.ready,'boolean');assert.equal(typeof data.payment.ready,'boolean');assert.equal(data.secrets,undefined);
 assert.equal((await get('/api/admin/config')).status,401);
 const session=await get('/api/admin/session');assert.equal(session.status,200);assert.equal((await session.json()).authenticated,false);
+const longBody=JSON.stringify({consent:true,messages:Array.from({length:15},(_,i)=>({role:i%2?'assistant':'user',text:'क'.repeat(4000)}))});
+const unauthorized=await fetch(origin+'/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:longBody,redirect:'error',signal:AbortSignal.timeout(45000)});assert.equal(unauthorized.status,401);
 const html=await get('/admin');assert.equal(html.status,200);assert.ok((await html.text()).includes('YOUR CONTROL ROOM'));
 console.log('Live HTTPS checks passed: health, public configuration, admin authentication boundary, session and admin page. Owner setup was not consumed.');

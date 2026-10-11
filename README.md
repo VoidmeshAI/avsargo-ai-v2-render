@@ -35,6 +35,6 @@ Encrypted PDF/JPG/PNG imports, on-device Latin/Devanagari OCR, combined detail r
 
 ## Validation
 
-75 local regression checks pass: 19 profile/OCR parsing, 18 form-agent, 17 UI workflow and 21 backend/storage tests. Native Android lint/compile, APK verification and rendered browser checks are performed by `.github/workflows/android-debug-apk.yml`. Real-phone OCR/vault/provider upload and live AI/payment checks still require device and account credentials.
+75 local regression checks pass: 19 profile/OCR parsing, 18 form-agent, 17 UI workflow and 21 backend/storage tests. Native Android lint/compile, APK signature verification and rendered browser checks passed in `.github/workflows/android-debug-apk.yml`. The dedicated backend is deployed successfully and live HTTPS health/config/admin-access checks passed. Real-phone OCR/vault/provider upload and live AI/payment checks still require device and account credentials.
 
 Build: `python3 scripts/build_apk.py` with Java 17, Android SDK 35 and Gradle 8.10.2; or GitHub Actions. Run backend tests with `node --test server/test/*.test.mjs` on Node 24. The browser visual check uses Playwright 1.56.1 and QA data only.

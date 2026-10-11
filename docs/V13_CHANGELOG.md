@@ -7,4 +7,4 @@
 - Added custom greeting/theme/accent/support/announcements/maintenance/official portals.
 - V13 installs separately for testing because the previous CI debug signing key was not retained. V12 is not migrated automatically.
 
-75 regression checks pass locally. Native build, rendered previews and live server acceptance are tracked in the build workflow. On-device OCR/document picker/Android Keystore, official portal compatibility, merchant capture and real AI billing need final phone/account testing.
+75 regression checks pass locally. Native Android lint/build, signature verification, rendered previews and live HTTPS health/config/admin-access checks passed. On-device OCR/document picker/Android Keystore, official portal compatibility, merchant capture and real AI billing need final phone/account testing.

@@ -1,25 +1,14 @@
-# Android test APK — build verified, phone acceptance PENDING
+# V13 phone acceptance plan
 
-The test APK compiled successfully in [GitHub Actions](https://github.com/VoidmeshAI/avsargo-ai-v2-render/actions/runs/38073731249). The remaining checks must be performed on an Android phone or emulator; source/DOM checks do not establish those results.
+The V13 APK compiles and passes native lint/signature verification, 75 regressions and phone-size browser UI checks. The backend is deployed; real merchant/AI keys are intentionally absent.
 
-- [x] CI lint, assembleDebug, APK package/signature verification passed; downloaded artifact/APK checksums match.
-- [ ] Install and launch on Android 8 and a modern Android 15/16 device. Status/navigation bars and keyboard do not hide the composer or portal controls.
-- [ ] Chat remains one main screen; Settings contains AI/test controls. Chat/service restore after restarting the app.
-- [ ] Configure a test Gemini key and consent; verify actual responses and follow-up conversation. No key/consent shows an accurate setup state.
-- [ ] No key is baked into the APK; provider errors/quota/timeouts restore Send.
-- [ ] Choose multiple dummy images/PDFs; cancellation and unsupported/oversized files recover; OCR extracts separate names/dates and combines review.
-- [ ] A rotated dummy document scans correctly; PDF cache disappears after normal scan and is swept after restart.
-- [ ] Review validation rejects invalid DOB/mobile/email/postal PIN and keeps entered values on failure.
-- [ ] Dummy profile → Settings → Test tools → sample login. Assist does not read/fill password, OTP or CAPTCHA.
-- [ ] Continue manually to step 1; approve fill; existing fields are preserved and state placeholder value 0 is handled.
-- [ ] Enable same-website session permission; press Next manually; step 2 fills reviewed fields and missing qualification gets a popup.
-- [ ] Switch page/origin while a fill approval is open; the stale approval cannot fill the new page.
-- [ ] File input → select saved encrypted document → confirmation shows the site. Cancellation gives no document to the site. Selected upload actually reaches the website correctly.
-- [ ] Site has no native JS bridge and cannot browse app files; content-provider URIs are read-only and require grants outside the app.
-- [ ] Login/payment screens remain user-controlled. No automatic Next/Submit, eSign, appointments or declaration clicks.
-- [ ] Unsupported embedded fields/portals show a useful limitation. SSL errors cannot be bypassed by the app.
-- [ ] Backgrounding stops scans; resume works; Back closes sheet/drawer/browser in the correct order; rotation retains workflow.
-- [ ] Delete all data clears documents/profile/chat/key/cookies, prevents pending old messages being saved, and disables any old autofill session.
-- [ ] Test one permission-compatible official portal end to end without final submission, then only user-selected manual submission if wanted.
+1. Install **AvsarGo AI 13** on Android 8+. Check welcome, drawer, keyboard/composer visibility, dark/light themes, message formatting/copy, Back and conversation restore.
+2. Use the private owner setup link, then sign into the in-app admin. Save an app greeting/theme/announcement, refresh Android settings and check that it appears. Test owner sign-out and password change.
+3. Configure a valid AI key, list available models, choose a text/chat model and enable it. Approve cloud consent in Android; chat in Hindi/Hinglish/English. Test long conversations and provider/quota errors. Do not paste applicant secrets into chat.
+4. Import multiple PDF/JPG/PNG files with consent; review combined Latin/Devanagari OCR, rotate photos, rescan, correct name components, and reopen the saved profile/documents. Verify picker cancellation and unsupported/oversize files.
+5. In Settings test tools, open the dummy application after approving a dummy profile. Check login, fill only reviewed blank fields, missing-details prompts, Next-page guards, saved-file upload approval, OTP/CAPTCHA and user-only final submission.
+6. Try a relevant official portal. Some portals block embedded browsers or use unsupported frames/labels. Confirm the app pauses safely, preserves entered fields, and offers manual handling without claiming completion.
+7. Configure Razorpay test keys/webhook and test checkout. Return to Settings and refresh Plus. Repeat payment callbacks/webhooks and check that entitlement is extended once. Live charges need completed merchant setup and a separate decision to enable Live mode.
+8. Background/foreground the app, restart it and check document/chat encryption and admin settings persistence. Clearing the V13 app data removes local docs/profile/conversation/installation token and its Plus access. V13 does not migrate V12 data.
 
-Do not claim universal official-portal compatibility based on the local sample form.
+No real-phone/device claim is made by the browser mock/native compile checks. OCR parsing tests are separate from actual ML Kit camera/image recognition.
