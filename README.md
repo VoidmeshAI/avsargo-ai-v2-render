@@ -1,35 +1,42 @@
-# AvsarGo AI V14 — Documents to application autofill
+# AvsarGo AI — V15 Android test build
 
-Android test build, API 26+; package `com.avsargo.mobile.beta.v14`, label **AvsarGo AI 14**.
+Customer application assistant with a separate owner dashboard.
 
-## Test the intended flow
+## Customer flow
 
-1. Admin: save a Gemini or OpenAI API key, then **Test connection**. The server chooses a working model. Existing owner settings and keys are retained.
-2. In the app, choose an application and tap **Upload documents**. Pick PDF/JPG/PNG files (8 MB each, up to 15).
-3. Approve **Scan ke baad… AI… analyse** to run AI immediately after import, or tap **Analyse saved documents with AI** and select the scans to share.
-4. AI extracts source-backed proposals from OCR text. Review the original sources, choose between conflicting values, edit missing details, then **Approve & save**.
-5. Open the official application in the in-app browser. Optionally approve **AI Assist** for field-label matching. Profile values stay on the phone.
-6. Review the proposed form values and tap **Fill details**. Missing profile fields or unmatched required controls open a popup. Session approval can fill later blank fields on that same website.
-7. Tap **Docs** on a document step, choose the upload field and a saved file, then approve sending it to that website. Direct portal file-picker buttons also list saved documents.
+- Name an application in chat. Udyam/MSME, PAN, SSC, RRB, UPSC, IBPS, NTA, driving licence, passport, voter, scholarship and e-Shram resolve through an official directory. Regional certificate services ask for the state. Unknown applications use verified public sources or an application choice, never a customer URL field.
+- Allow document/form automation once. The choice is encrypted on the device, reused across official applications and revocable in Preferences. Prior V14 document-analysis permission is migrated; revocation stays revoked.
+- Upload up to 15 PDF/JPG/PNG files, maximum 8 MB each. Bundled Latin and Devanagari ML Kit scans sequentially up to 20 pages per document, keeps up to 48,000 OCR characters and two bounded page previews. Truncation is visible. Photos are corrected for EXIF orientation.
+- Structured AI analysis reads all selected OCR text plus up to six selected page previews. There are 47 shared profile fields and labelled additional facts. Facts are source grounded and normalised. Image-only proposals are labelled for original review; conflicts require a choice.
+- Confirm the actual extracted details. Review originals privately on the phone. Autofill fills only blank, matched controls and asks for missing values. Text, select, ordinary radio and separated DOB controls are supported; existing values remain intact.
+- A uniquely matching saved document can attach to a visible portal upload field. Ambiguous types require a file choice. Document types can be corrected in the document workspace. Only a validated file input receives native touch activation.
+- Login, OTP, CAPTCHA, legal declarations, payment, eSign, appointment choices and final submission remain applicant actions. Cross-origin frames and custom controls that cannot be matched safely need manual entry. Portals can block embedded browsers.
+- Chat has recent conversations, a document workspace, reviewed profile, application progress and light/dark themes. Customer UI has no owner login or API key inputs. Connection errors offer Retry.
+- Live questions use provider grounding when available; search quota failures fall back to reading verified official pages. If current registration status cannot be established, the response says so. Provider attribution is displayed with the full answer in a separate JavaScript-disabled WebView with no native bridge.
 
-Login, OTP, CAPTCHA, declarations, payment, eSign and final submission remain applicant actions. Check every field before continuing. Dynamic layouts, cross-origin frames, blocked embedded browsers and unsupported control types may require manual entry; universal portal automation is not claimed.
+## Owner dashboard
 
-## Document processing
+`https://avsargo-ai-admin-production.up.railway.app/admin`
 
-Bundled Latin + Devanagari ML Kit OCR runs locally. Scanned text (not original file bytes) goes to the owner-configured AI only after explicit selection/sharing consent. A PDF scan covers its first 3 pages and at most 12,000 characters per document; the UI warns about partial scans. Split additional required pages into separate files. One AI batch is limited to 45,000 characters. Photos/signatures without text remain available for portal upload.
+Existing login, encrypted provider/payment keys and persistent volume are retained. Add a provider key, save, then Test; the model is selected automatically. Remove a saved key with the dedicated action. No provider secret is shipped in the APK.
 
-Candidates include document source, quoted evidence and confidence. Unsupported, ungrounded or invalid proposals are discarded. Names are not silently split. Saved profile values are not silently replaced. Reviewed fields include applicant/contact/address details and education, passing year, percentage, category and domicile. Government identifiers and login/payment credentials are not saved in this reusable profile.
+## Build and checks
 
-## Backend and privacy
+Java 17, Gradle 8.10.2, Android SDK/build-tools 35, minimum Android 8/API 26.
 
-`server/` uses Node 24, encrypted SQLite on the existing Railway volume (or PostgreSQL), owner cookie/CSRF protection and authenticated app installation tokens. Routes `/api/documents/analyse` and `/api/forms/map` share per-device/global AI allowance and concurrency controls with chat; failed provider operations refund allowance. Document text, extracted values and form labels are not persisted in server state or logs. Provider data retention follows the configured provider account; OpenAI requests use `store:false`.
+```sh
+node scripts/generate-profile-fields.mjs --check
+node --test server/test/*.test.mjs
+node tests/form-agent.test.cjs
+node tests/ui-workflow.test.cjs
+javac -d /tmp/avsargo-tests app/src/main/java/com/avsargo/mobile/ProfileFields.java app/src/main/java/com/avsargo/mobile/ProfileRules.java tests/ProfileRulesTest.java
+java -cp /tmp/avsargo-tests ProfileRulesTest
+gradle --no-daemon :app:lintDebug :app:assembleDebug
+gradle --no-daemon :app:connectedDebugAndroidTest
+```
 
-The trusted bundled chat and portal have separate WebViews. The portal has no native JavaScript bridge. The injected helper fills approved blank safe controls, checks its page signature and preserves existing values. AI returns only profile-key mappings, never executable code. File-picker opening requires an explicit upload action. No navigation or submit controls are clicked.
+GitHub Actions also checks phone/tablet/desktop customer screens, Chrome/Safari owner flows, Android 15 native OCR/WebView/file uploads, and optional saved-provider/official-site checks. Browser fixtures are explicitly simulated; native instrumentation runs bundled ML Kit, Keystore, WebViews and the Android file picker using synthetic files. It does not submit real government applications.
 
-Supported navigation: HTTPS `.gov.in` / `.nic.in`, plus exact PAN application hosts `onlineservices.proteantech.in`, `www.onlineservices.proteantech.in`, `pan.utiitsl.com`, `www.pan.utiitsl.com`. The Income Tax Department identifies Protean and UTIITSL as PAN operators. Other external hosts open via an explicit regular-browser handoff, where Assist is unavailable.
+## Install/update
 
-## Build and verification
-
-Java 17, Gradle 8.10.2, Android SDK/build-tools 35. Use `python3 scripts/build_apk.py` or the Android GitHub Actions workflow. CI runs native lint/compile, portable Java profile validation, backend regressions, DOM workflow tests, and Chromium rendering with a simulated native OCR/picker fixture. Live provider checks use synthetic document text, never applicant documents.
-
-V14 installs separately from V13, whose CI debug signing key was not retained. Keep V13 for its existing local files; select documents again in V14. The delivered V14 APK is re-signed with the dedicated backed-up test key. Future V14 updates must use that same private key. No signing key or API secret is included in this public source project. Physical-device OCR, file-provider behavior and authenticated government-portal acceptance still need the user's test.
+V15 retains `com.avsargo.mobile.beta.v14` and uses versionCode 15. The delivered APK uses the same dedicated test certificate as the delivered V14 APK, so it updates V14 in place. Back up needed data before uninstalling; ordinary update installation preserves the encrypted workspace. APK signing credentials are excluded from this repository and source archive.

@@ -141,7 +141,7 @@ public final class SecureVault {
         byte[] raw=readEncrypted("application.sec");return raw==null?new JSONObject():new JSONObject(new String(raw,StandardCharsets.UTF_8));
     }
     public synchronized void saveWorkspace(JSONObject data) throws Exception {
-        if(data.toString().length()>2000000)throw new IllegalArgumentException("Chat storage limit reached");
+        if(data.toString().length()>6000000)throw new IllegalArgumentException("Chat storage limit reached");
         writeEncrypted("workspace.sec",data.toString().getBytes(StandardCharsets.UTF_8));
     }
     public synchronized JSONObject workspace() throws Exception {
