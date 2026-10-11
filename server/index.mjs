@@ -9,7 +9,7 @@ if(!origin.startsWith('https://'))throw new Error('PUBLIC_ORIGIN must be HTTPS')
 const directory=process.env.DATA_DIR||'/data';
 if(!process.env.DATABASE_URL)mkdirSync(directory,{recursive:true,mode:0o700});
 const store=process.env.DATABASE_URL?await postgresStore(process.env.DATABASE_URL,key):sqliteStore(directory+'/avsargo-control.db',key);
-const app=await createApp({store,origin,setupHash:process.env.ADMIN_SETUP_HASH,setupExpires:Number(process.env.ADMIN_SETUP_EXPIRES_AT),ipSalt:process.env.CONFIG_ENCRYPTION_KEY});
+const app=await createApp({store,origin,setupHash:process.env.ADMIN_SETUP_HASH,setupExpires:Number(process.env.ADMIN_SETUP_EXPIRES_AT),ipSalt:process.env.CONFIG_ENCRYPTION_KEY,report:details=>console.log(JSON.stringify(details))});
 const server=http.createServer(async(req,res)=>{
   try{
     const pathname=new URL(req.url,origin).pathname;
@@ -21,5 +21,5 @@ const server=http.createServer(async(req,res)=>{
   }catch{res.writeHead(500,{'content-type':'application/json'});res.end('{"error":"Service temporarily unavailable"}');}
 });
 server.requestTimeout=45000;server.headersTimeout=15000;
-server.listen(Number(process.env.PORT||3000),'0.0.0.0',()=>console.log('AvsarGo control service ready'));
+server.listen(Number(process.env.PORT||3000),'0.0.0.0',()=>{console.log('AvsarGo control service ready');app.migrateAI().catch(()=>{});});
 for(const event of ['SIGINT','SIGTERM'])process.on(event,()=>server.close(async()=>{await app.close();await store.close();process.exit(0);}));

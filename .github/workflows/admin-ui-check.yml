@@ -1,9 +1,9 @@
-name: Verify AvsarGo owner setup in Chrome and Safari
+name: Verify AvsarGo admin in Chrome and Safari
 on:
   workflow_dispatch:
   push:
     branches: ['android/v13-polished-admin']
-    paths: ['server/**', 'scripts/admin-setup-check.mjs', '.github/workflows/admin-ui-check.yml']
+    paths: ['server/**', 'scripts/admin-setup-check.mjs', 'scripts/admin-ai-check.mjs', '.github/workflows/admin-ui-check.yml']
 permissions:
   contents: read
 jobs:
@@ -25,3 +25,12 @@ jobs:
         env:
           PLAYWRIGHT_PATH: /tmp/avsargo-browser/node_modules/playwright
         run: node scripts/admin-setup-check.mjs
+      - name: Verify API key save, automatic model, real reply test and removal buttons
+        env:
+          PLAYWRIGHT_PATH: /tmp/avsargo-browser/node_modules/playwright
+        run: node scripts/admin-ai-check.mjs
+      - name: Save admin screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: AvsarGo-V13-admin-ai-screenshots
+          path: visual-checks/*.png

@@ -14,12 +14,14 @@ Use the private setup link delivered separately to create an owner username and 
 
 The private setup link survives refresh in the same browser tab. If you opened the regular admin address before creating an account, paste the code from your private guide into **Private setup code**. Pending setup codes are cleared after account creation or when an owner already exists. The regular address then shows sign-in.
 
-- AI: Gemini or OpenAI keys, model discovery, response instructions and per-device/global quotas.
+- AI: Gemini or OpenAI keys, automatic model selection with a real reply test, response instructions and per-device/global quotas.
 - Payments: Razorpay test/live keys and webhook secrets, plan price/duration and a feature switch. Server-created orders, callback signature checks, captured-payment verification and idempotent webhooks protect entitlements. Government portal fees are separate.
 - App: name, welcome text, default theme, accent, support, announcements, maintenance and official portal links.
 - Owner account: password change, sign-out and recent administrative activity.
 
-Save changes in the panel, then Android Settings → Refresh app settings, or reopen the app. Live AI and payments stay disabled until the owner saves valid provider credentials and enables them. No working API key is embedded. The optional model-list and payment-key checks make read-only provider requests.
+Save changes in the panel, then Android Settings → Refresh app settings, or reopen the app. For AI, select Gemini or OpenAI, enter the key, save, then tap **Test connection**. The server discovers compatible models and confirms a real short reply before enabling AI. Model IDs are selected automatically; no manual model field is shown. A failed test reports key permissions, billing/quota, model access or a timeout separately. Replacing/removing the active key or changing providers requires a fresh test. **Remove key** opens a confirmation; removal can be undone until saving. Payment key checks remain read-only. No working API key is embedded.
+
+An existing enabled installation gets one bounded verification during the first deployment of this repair. The attempt is recorded before contacting the provider, so restarts do not repeat it. Provider test usage may apply. Gemini Flash/Lite models use low-latency thinking settings supported by each model. Saved keys, owner access and app data remain intact.
 
 ## Backend
 
@@ -37,6 +39,6 @@ Encrypted PDF/JPG/PNG imports, on-device Latin/Devanagari OCR, combined detail r
 
 ## Validation
 
-75 local regression checks pass: 19 profile/OCR parsing, 18 form-agent, 17 UI workflow and 21 backend/storage tests. Native Android lint/compile, APK signature verification and rendered browser checks passed in `.github/workflows/android-debug-apk.yml`. The dedicated backend is deployed successfully and live HTTPS health/config/admin-access checks passed. Real-phone OCR/vault/provider upload and live AI/payment checks still require device and account credentials.
+Backend validation now includes 32 authentication, configuration, AI connection and persistence tests. The unchanged Android release previously passed 19 profile/OCR parsing, 18 form-agent and 17 UI workflow checks. Native Android lint/compile, APK signature verification and rendered browser checks passed in `.github/workflows/android-debug-apk.yml`. The dedicated backend is deployed successfully and live HTTPS health/config/admin-access checks passed. Real-phone OCR/vault/provider upload and live payment checks still require device and merchant-account testing. Live AI verification is recorded separately from simulated-provider regression checks.
 
 Build: `python3 scripts/build_apk.py` with Java 17, Android SDK 35 and Gradle 8.10.2; or GitHub Actions. Run backend tests with `node --test server/test/*.test.mjs` on Node 24. The browser visual check uses Playwright 1.56.1 and QA data only.

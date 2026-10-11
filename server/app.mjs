@@ -1,5 +1,6 @@
 import {randomBytes,createHash,createHmac,timingSafeEqual,scryptSync} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
+import {createProviderClient,generateReply,testSavedProvider} from './ai-provider.mjs';
 
 const random=()=>randomBytes(32).toString('base64url');
 export const hash=value=>createHash('sha256').update(value).digest('hex');
@@ -21,7 +22,8 @@ function validateConfig(input){
   for(const key of ['supportEmail','supportUrl','announcement'])c.branding[key]=text(c.branding[key],0,key==='announcement'?500:180,key);
   if(c.branding.supportEmail&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c.branding.supportEmail))fail(400,'Invalid support email');
   if(c.branding.supportUrl){try{const u=new URL(c.branding.supportUrl);if(u.protocol!=='https:'||u.username||u.password)throw Error();}catch{fail(400,'Support link must use HTTPS');}}
-  if(!['gemini','openai'].includes(c.ai.provider)||!/^[a-zA-Z0-9._-]{0,100}$/.test(c.ai.model))fail(400,'Invalid AI provider or model');
+  if(!['gemini','openai'].includes(c.ai.provider))fail(400,'Invalid AI provider');
+  c.ai.model=''; // Selected by the server after a real generation test.
   c.ai.prompt=text(c.ai.prompt,0,6000,'assistant instructions');
   for(const k of ['freeDailyLimit','paidDailyLimit'])c.ai[k]=integer(c.ai[k],1,1000,k);
   c.ai.globalDailyLimit=integer(c.ai.globalDailyLimit,1,20000,'global daily limit');c.ai.maxOutputTokens=integer(c.ai.maxOutputTokens,128,8192,'output length');
@@ -35,13 +37,17 @@ function validateConfig(input){
 }
 const secretNames=['geminiKey','openaiKey','razorpayTestId','razorpayTestSecret','razorpayTestWebhook','razorpayLiveId','razorpayLiveSecret','razorpayLiveWebhook'];
 const paymentKeys=(state,mode)=>({id:state.secrets[mode==='live'?'razorpayLiveId':'razorpayTestId']||'',secret:state.secrets[mode==='live'?'razorpayLiveSecret':'razorpayTestSecret']||'',webhook:state.secrets[mode==='live'?'razorpayLiveWebhook':'razorpayTestWebhook']||''});
-const aiReady=state=>!!(state.config.ai.enabled&&state.config.ai.model&&state.secrets[state.config.ai.provider==='gemini'?'geminiKey':'openaiKey']);
+const aiKey=state=>state.secrets[state.config.ai.provider==='gemini'?'geminiKey':'openaiKey']||'';
+const aiVerified=state=>!!(aiKey(state)&&state.aiConnection?.status==='connected'&&state.aiConnection.provider===state.config.ai.provider&&state.aiConnection.model===state.config.ai.model&&state.aiConnection.keyHash===hash(aiKey(state)));
+const aiReady=state=>!!(state.config.ai.enabled&&aiVerified(state));
+function aiConnection(state){const c=state.aiConnection;return c?{status:c.status,model:c.model||'',checkedAt:c.checkedAt||'',latencyMs:c.latencyMs||0,code:c.code||'',message:c.message||''}:{status:'untested',model:'',message:aiKey(state)?'Key saved. Test connection to enable AI.':'Add a key, save, then test the connection.'};}
 const paymentReady=state=>{const k=paymentKeys(state,state.config.payment.mode);return !!(state.config.payment.enabled&&k.id&&k.secret);};
 function publicConfig(state){const c=state.config;return {revision:c.revision,branding:c.branding,maintenance:c.maintenance,portals:c.portals,ai:{ready:aiReady(state),freeDailyLimit:c.ai.freeDailyLimit,paidDailyLimit:c.ai.paidDailyLimit},payment:{ready:paymentReady(state),mode:c.payment.mode,planName:c.payment.planName,pricePaise:c.payment.pricePaise,durationDays:c.payment.durationDays}};}
 
-export async function createApp({store,setupHash,setupExpires=Date.now()+86400000,origin='http://localhost:3000',fetchImpl=fetch,clock=Date.now,secureCookies=true,ipSalt=random()}){
+export async function createApp({store,setupHash,setupExpires=Date.now()+86400000,origin='http://localhost:3000',fetchImpl=fetch,clock=Date.now,secureCookies=true,ipSalt=random(),report=()=>{}}){
   let state=(await store.read())||freshState(),queue=Promise.resolve();
   const sessions=new Map(),rates=new Map(),busy=new Set();
+  const aiClient=createProviderClient({fetchImpl,report});let testingAI=false;
   async function mutate(fn){const task=queue.then(async()=>{if(store.transaction){const result=await store.transaction(fn);state=result.state;return result.result;}const next=structuredClone(state);const result=await fn(next);await store.write(next);state=next;return result;});queue=task.catch(()=>{});return task;}
   if(!await store.read())await store.write(state);
   function audit(s,action){s.audit.unshift({at:new Date(clock()).toISOString(),action});s.audit=s.audit.slice(0,100);}
@@ -58,9 +64,30 @@ export async function createApp({store,setupHash,setupExpires=Date.now()+8640000
   const paid=d=>d.plusUntil>clock();
   function deviceStatus(id){const d=state.devices[id],used=d.day===date()?d.used:0;return {plusUntil:d.plusUntil||0,paid:paid(d),used,dailyLimit:paid(d)?state.config.ai.paidDailyLimit:state.config.ai.freeDailyLimit};}
   async function provider(url,options){let res;try{res=await fetchImpl(url,{...options,redirect:'error',signal:AbortSignal.timeout(35000)});}catch{fail(502,'Provider connection failed. Try again.');}if(!res.ok){if(res.status===401||res.status===403)fail(502,'Provider rejected the configured key. Contact support.');if(res.status===429)fail(503,'Provider limit reached. Try again later.');fail(502,'Provider request failed (HTTP '+res.status+')');}try{return await res.json();}catch{fail(502,'Provider returned an unreadable response');}}
-  async function chat(messages){const c=state.config.ai,key=state.secrets[c.provider==='gemini'?'geminiKey':'openaiKey'];const prompt=basePrompt+'\nAdditional app instructions: '+c.prompt;
-    if(c.provider==='gemini'){const data=await provider('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(c.model)+':generateContent',{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':key},body:JSON.stringify({systemInstruction:{parts:[{text:prompt}]},contents:messages.map(m=>({role:m.role==='user'?'user':'model',parts:[{text:m.text}]})),generationConfig:{maxOutputTokens:c.maxOutputTokens}})});const answer=(data.candidates?.[0]?.content?.parts||[]).filter(p=>!p.thought).map(p=>p.text||'').join('\n');if(!answer.trim())fail(502,'The AI did not return a response. Please try again.');return answer.slice(0,15000);}
-    const data=await provider('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+key},body:JSON.stringify({model:c.model,messages:[{role:'system',content:prompt},...messages.map(m=>({role:m.role,content:m.text}))],max_completion_tokens:c.maxOutputTokens})});const answer=data.choices?.[0]?.message?.content;if(typeof answer!=='string'||!answer.trim())fail(502,'The AI did not return a response. Please try again.');return answer.slice(0,15000);
+  async function chat(messages){const c=state.config.ai;return generateReply(aiClient,{...c,key:aiKey(state),messages,prompt:basePrompt+'\nAdditional app instructions: '+c.prompt,maxOutputTokens:Math.min(c.maxOutputTokens,state.aiConnection?.outputTokenLimit||8192)});}
+  async function testAI(revision,source='owner'){
+    if(testingAI)fail(409,'A connection test is already running. Please wait.');
+    if(revision!==state.config.revision)fail(409,'Settings changed. Refresh before testing.');
+    const c=structuredClone(state.config.ai),key=aiKey(state);if(!key)fail(400,'Add the selected provider API key and save changes first.');
+    const keyHash=hash(key),matches=s=>s.config.revision===revision&&s.config.ai.provider===c.provider&&hash(aiKey(s))===keyHash;
+    testingAI=true;
+    try{
+      await mutate(s=>{if(!matches(s))fail(409,'Settings changed. Refresh before testing.');s.aiConnection={status:'testing',provider:c.provider,keyHash,message:'Testing a real AI reply…'};});
+      const result=await testSavedProvider(aiClient,{provider:c.provider,key,prompt:basePrompt+'\nAdditional app instructions: '+c.prompt},clock);
+      await mutate(s=>{if(!matches(s))fail(409,'Settings changed during the test. Save and test the current key again.');s.config.ai.model=result.model;s.config.ai.enabled=true;s.config.revision++;s.aiConnection={status:'connected',provider:c.provider,keyHash,...result,checkedAt:new Date(clock()).toISOString(),message:'Connected. A real AI reply was received.'};audit(s,'AI connection verified · '+c.provider);});
+      report({event:'ai_connection_test',source,provider:c.provider,status:'connected',model:result.model,latencyMs:result.latencyMs});return {ok:true,connection:aiConnection(state),revision:state.config.revision};
+    }catch(e){
+      await mutate(s=>{if(matches(s)){s.aiConnection={status:'failed',provider:c.provider,keyHash,checkedAt:new Date(clock()).toISOString(),code:e.code||'TEST_FAILED',message:e.status?e.message:'AI connection test failed. Please try again.'};audit(s,'AI connection test failed · '+(e.code||'TEST_FAILED'));}});
+      report({event:'ai_connection_test',source,provider:c.provider,status:'failed',code:e.code||'TEST_FAILED'});throw e;
+    }finally{testingAI=false;}
+  }
+  async function migrateAI(){
+    // One bounded test for existing enabled installations after this repair.
+    // Attempt state is persisted before contacting the provider; restarts do not
+    // repeat paid tests. Existing owner credentials and provider keys are kept.
+    if(store.transaction)state=await store.read();
+    if(state.aiConnection!==undefined||!state.config.ai.enabled||!aiKey(state))return {skipped:true};
+    return testAI(state.config.revision,'migration');
   }
   function settle(s,orderId,paymentId){const order=s.orders[orderId];if(!order||order.status==='paid')return;order.status='paid';order.paymentId=paymentId;order.paidAt=clock();const d=s.devices[order.device];if(d)d.plusUntil=Math.max(d.plusUntil||0,clock())+order.days*86400000;audit(s,'Payment captured · '+order.mode);}
   async function staticFile(name,type){const content=await readFile(new URL('./public/'+name,import.meta.url));return new Response(content,{headers:{'content-type':type,'cache-control':'no-store'}});}
@@ -84,18 +111,24 @@ export async function createApp({store,setupHash,setupExpires=Date.now()+8640000
     }
     if(path==='/api/admin/logout'&&method==='POST'){session(req,true);const token=req.headers.get('cookie').match(/av_admin=([^;]+)/)[1];sessions.delete(hash(token));return json({ok:true},200,{'set-cookie':cookie('',0)});}
     if(path==='/api/admin/password'&&method==='POST'){session(req,true);const data=await body(req);if(!checkPassword(String(data.current||'').slice(0,200),state.admin.password))fail(403,'Current password is incorrect');const next=text(data.password,12,200,'new password');await mutate(s=>{s.admin.password=passwordHash(next);audit(s,'Owner password changed');});sessions.clear();return json({ok:true},200,{'set-cookie':cookie('',0)});}
-    if(path==='/api/admin/config'&&method==='GET'){session(req);return json({config:state.config,keys:Object.fromEntries(secretNames.map(n=>[n,!!state.secrets[n]])),aiReady:aiReady(state),paymentReady:paymentReady(state)});}
+    if(path==='/api/admin/config'&&method==='GET'){session(req);return json({config:state.config,keys:Object.fromEntries(secretNames.map(n=>[n,!!state.secrets[n]])),aiReady:aiReady(state),aiConnection:aiConnection(state),paymentReady:paymentReady(state)});}
     if(path==='/api/admin/config'&&method==='PUT'){
       session(req,true);const data=await body(req),config=validateConfig(data.config);
       await mutate(s=>{if(data.revision!==s.config.revision)fail(409,'Settings changed in another window. Reload before saving.');
+        const beforeKey=aiKey(s),beforeProvider=s.config.ai.provider,selectedName=config.ai.provider==='gemini'?'geminiKey':'openaiKey';
         for(const n of secretNames){if(data.keys&&Object.hasOwn(data.keys,n)){const val=text(data.keys[n],0,500,n);if(val){if(/\s/.test(val))fail(400,'Keys cannot contain whitespace');s.secrets[n]=val;}}if(data.removeKeys?.includes(n))delete s.secrets[n];}
         for(const mode of ['test','live']){const k=paymentKeys(s,mode);if(k.id&&!k.id.startsWith(mode==='test'?'rzp_test_':'rzp_live_'))fail(400,'Razorpay '+mode+' key ID does not match its mode');}
-        if(config.ai.enabled&&(!config.ai.model||!s.secrets[config.ai.provider==='gemini'?'geminiKey':'openaiKey']))fail(400,'Add the selected provider key and model before enabling AI');
+        if(data.removeKeys?.includes(selectedName))config.ai.enabled=false;
+        if(config.ai.enabled&&!s.secrets[selectedName])fail(400,'Add the selected provider key before enabling AI');
+        const changed=beforeProvider!==config.ai.provider||beforeKey!==(s.secrets[selectedName]||'');
+        if(changed||s.aiConnection?.status==='testing'){s.aiConnection=null;config.ai.model='';}
+        else config.ai.model=s.config.ai.model;
         const p=paymentKeys(s,config.payment.mode);if(config.payment.enabled&&(!p.id||!p.secret))fail(400,'Add the payment key ID and secret before enabling payments');
         config.revision=s.config.revision+1;s.config=config;audit(s,'App settings updated');
       });return json({ok:true,revision:state.config.revision});
     }
-    if(path==='/api/admin/models'&&method==='POST'){session(req,true);const c=state.config.ai,key=state.secrets[c.provider==='gemini'?'geminiKey':'openaiKey'];if(!key)fail(400,'Save a provider key first');limit('models',5,60000);const data=await provider(c.provider==='gemini'?'https://generativelanguage.googleapis.com/v1beta/models?pageSize=100':'https://api.openai.com/v1/models',{headers:c.provider==='gemini'?{'x-goog-api-key':key}:{authorization:'Bearer '+key}});const models=c.provider==='gemini'?(data.models||[]).filter(m=>m.supportedGenerationMethods?.includes('generateContent')).map(m=>m.name.replace(/^models\//,'')):(data.data||[]).map(m=>m.id);return json({models});}
+    if(path==='/api/admin/ai/test'&&method==='POST'){session(req,true);limit('ai-test',3,60000);const data=await body(req);return json(await testAI(data.revision));}
+    if(path==='/api/admin/models'&&method==='POST'){session(req,true);fail(410,'Use Test connection. The model is selected automatically.');}
     if(path==='/api/admin/payment-check'&&method==='POST'){session(req,true);const k=paymentKeys(state,state.config.payment.mode);if(!k.id||!k.secret)fail(400,'Save payment keys first');await provider('https://api.razorpay.com/v1/orders?count=1',{headers:{authorization:'Basic '+Buffer.from(k.id+':'+k.secret).toString('base64')}});return json({ok:true,message:'Payment key connection verified. No payment was created.'});}
     if(path==='/api/admin/overview'&&method==='GET'){session(req);const orders=Object.values(state.orders);return json({devices:Object.keys(state.devices).length,paidDevices:Object.values(state.devices).filter(paid).length,chatsToday:state.usage[date()]||0,testPayments:orders.filter(o=>o.status==='paid'&&o.mode==='test').length,liveRevenuePaise:orders.filter(o=>o.status==='paid'&&o.mode==='live').reduce((a,o)=>a+o.amount,0),audit:state.audit});}
     if(path==='/api/device/register'&&method==='POST'){
@@ -105,7 +138,7 @@ export async function createApp({store,setupHash,setupExpires=Date.now()+8640000
     }
     if(path==='/api/device/status'&&method==='GET'){const d=device(req);return json(deviceStatus(d.id));}
     if(path==='/api/chat'&&method==='POST'){
-      const d=device(req);if(state.config.maintenance.enabled)fail(503,state.config.maintenance.message);if(!aiReady(state))fail(503,'AI is not configured yet. The owner can enable it in Admin panel.');limit('chat:'+ip(req),20);if(busy.has(d.id))fail(409,'Please wait for the current reply');
+      const d=device(req);if(state.config.maintenance.enabled)fail(503,state.config.maintenance.message);if(!aiReady(state))fail(503,'AI connection needs a successful test. In Admin → AI assistant, save the API key and tap Test connection.');limit('chat:'+ip(req),20);if(busy.has(d.id))fail(409,'Please wait for the current reply');
       const data=await body(req);if(data.consent!==true)fail(400,'Cloud chat consent is required');if(!Array.isArray(data.messages)||!data.messages.length||data.messages.length>16)fail(400,'Invalid conversation');
       const messages=data.messages.map(m=>{if(!['user','assistant'].includes(m.role))fail(400,'Invalid role');return {role:m.role,text:text(m.text,1,5000,'message')};});if(messages.at(-1).role!=='user')fail(400,'Last message must be from the user');
       busy.add(d.id);const day=date();let reserved=false;
@@ -137,8 +170,8 @@ export async function createApp({store,setupHash,setupExpires=Date.now()+8640000
     }
     fail(404,'Not found');
   }
-  return {async fetch(req){let response;try{response=await handle(req);}catch(e){response=json({error:e.status?e.message:'Service temporarily unavailable'},e.status||500);}
+  return {async fetch(req){let response;try{response=await handle(req);}catch(e){response=json({error:e.status?e.message:'Service temporarily unavailable',...(e.code?{code:e.code}:{})},e.status||500);}
     const checkout=new URL(req.url).pathname.startsWith('/checkout');
     response.headers.set('content-security-policy',"default-src 'self'; script-src 'self'"+(checkout?" https://checkout.razorpay.com":"")+"; style-src 'self'"+(checkout?" 'unsafe-inline'":"")+"; img-src 'self' data:; connect-src 'self'"+(checkout?" https://*.razorpay.com":"")+"; frame-src "+(checkout?'https://*.razorpay.com':"'none'")+"; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
-    response.headers.set('x-content-type-options','nosniff');response.headers.set('referrer-policy','no-referrer');response.headers.set('permissions-policy','camera=(),microphone=(),geolocation=()');if(secureCookies)response.headers.set('strict-transport-security','max-age=31536000');return response;},snapshot:()=>structuredClone(state),close:()=>queue};
+    response.headers.set('x-content-type-options','nosniff');response.headers.set('referrer-policy','no-referrer');response.headers.set('permissions-policy','camera=(),microphone=(),geolocation=()');if(secureCookies)response.headers.set('strict-transport-security','max-age=31536000');return response;},migrateAI,snapshot:()=>structuredClone(state),close:()=>queue};
 }

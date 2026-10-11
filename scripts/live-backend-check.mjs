@@ -12,4 +12,6 @@ const session=await get('/api/admin/session');assert.equal(session.status,200);c
 const longBody=JSON.stringify({consent:true,messages:Array.from({length:15},(_,i)=>({role:i%2?'assistant':'user',text:'क'.repeat(4000)}))});
 const unauthorized=await fetch(origin+'/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:longBody,redirect:'error',signal:AbortSignal.timeout(45000)});assert.equal(unauthorized.status,401);
 const html=await get('/admin');assert.equal(html.status,200);assert.ok((await html.text()).includes('YOUR CONTROL ROOM'));
+assert.ok(liveAdmin.includes("api('admin/ai/test'"));assert.ok(!liveAdmin.includes('Model ID'));assert.ok(!liveAdmin.includes('Check key & list models'));
+const testUnauthorized=await fetch(origin+'/api/admin/ai/test',{method:'POST',headers:{'content-type':'application/json'},body:'{}',redirect:'error',signal:AbortSignal.timeout(45000)});assert.equal(testUnauthorized.status,401);
 console.log('Live HTTPS checks passed: repaired admin JavaScript, health, public configuration, admin authentication boundary, session and admin page. Owner setup required: '+sessionData.setupRequired+'. Owner setup was not consumed.');
