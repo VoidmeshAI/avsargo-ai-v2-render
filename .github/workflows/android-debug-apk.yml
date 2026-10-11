@@ -3,6 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main, master, 'android/**']
+    paths: ['app/**', 'tests/**', 'build.gradle', 'settings.gradle', 'gradle/**', 'gradle.properties', 'scripts/visual-check.mjs', '.github/workflows/android-debug-apk.yml']
 permissions:
   contents: read
 jobs:
