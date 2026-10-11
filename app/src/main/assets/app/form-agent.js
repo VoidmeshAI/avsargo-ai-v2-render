@@ -1,8 +1,8 @@
-/* Runs only inside the portal WebView. No network, native bridge, clicks or submission.
-   Only descriptors and blankness of supported non-secret fields are inspected. */
+/* Isolated portal helper: no network/native bridge. Fill only reviewed blank values.
+   Explicit upload mode may open a file picker; it never clicks navigation or submit. */
 function avsarGoFormAgent(mode, payload) {
   'use strict';
-  const deny=/password|\bpwd\b|login|user\s*(?:id|name)|otp|one.?time|verification.?code|captcha|security.?code|\bcvv\b|\bcvc\b|card.?number|upi|payment|bank|account|ifsc|aadhaar|aadhar|uidai|pan.?number|passport.?number|ssn|confirm|retype|submit|search|transaction|(?:^|\s)pin(?:\s|$)|पासवर्ड|कैप्चा|ओटीपी|खाता|आधार|पैन.?नंबर|भुगतान/i;
+  const deny=/password|\bpwd\b|login|user\s*(?:id|name)|otp|one.?time|verification.?code|captcha|security.?code|\bcvv\b|\bcvc\b|card.?number|upi|payment|bank|account|ifsc|aadhaar|aadhar|uidai|pan.?number|passport.?number|ssn|confirm|retype|submit|search|transaction|declar|agree|consent|(?:^|\s)pin(?:\s|$)|पासवर्ड|कैप्चा|ओटीपी|खाता|आधार|पैन.?नंबर|भुगतान/i;
   const specs=[
     ['fatherName',/father|पिता/i],['motherName',/mother|माता/i],
     ['dob',/date.?of.?birth|birth.?date|\bdob\b|जन्म.?तिथि|जन्म.?दिनांक/i],
@@ -11,6 +11,10 @@ function avsarGoFormAgent(mode, payload) {
     ['state',/\bstate\b|राज्य/i],['district',/district|जिला/i],['city',/\bcity\b|\btown\b|शहर/i],
     ['address',/address|residential|पता/i],['gender',/gender|\bsex\b|लिंग/i],
     ['nationality',/nationality|citizenship|राष्ट्रीयता/i],['qualification',/highest.?qualification|educational.?qualification|qualification|योग्यता/i],
+    ['domicile',/domicile|निवास.?राज्य/i],['category',/reservation.?category|social.?category|caste.?category|^category$|श्रेणी/i],
+    ['passingYear',/passing.?year|year.?of.?passing|उत्तीर्ण.?वर्ष/i],['percentage',/percentage|marks.?percent|प्रतिशत/i],
+    ['board',/education.?board|exam.?board|university|बोर्ड|विश्वविद्यालय/i],['course',/course|discipline|पाठ्यक्रम/i],
+    ['rollNumber',/roll.?n(?:o|umber)|रोल.?नंबर/i],['school',/school.?name|college.?name|institution.?name|विद्यालय.?नाम/i],
     ['firstName',/first.?name|given.?name|पहला.?नाम/i],['middleName',/middle.?name|मध्य.?नाम/i],['lastName',/last.?name|surname|family.?name|उपनाम/i],
     ['fullName',/applicant.?name|candidate.?name|full.?name|name.?of.?(?:applicant|candidate)|your.?name|आवेदक.?का.?नाम|पूरा.?नाम|^name$|^नाम$/i]
   ];
@@ -35,10 +39,12 @@ function avsarGoFormAgent(mode, payload) {
   function secret(el){
     if(el.tagName==='INPUT'&&!['text','email','tel','date','number',''].includes((el.type||'text').toLowerCase()))return true;
     const d=descriptor(el),withoutPostal=d.replace(/(?:postal|zip|pin)\s*code|pincode|पिन\s*कोड/ig,'postalcode');
-    return !d||deny.test(withoutPostal)||/guardian|parent.?name|organisation|organization|company|school|college|nominee|spouse|अभिभावक|संस्था/i.test(d);
+    return !d||deny.test(withoutPostal);
   }
   function keyFor(el){
     if(!visible(el)||secret(el))return null;const d=descriptor(el);
+    if(/guardian|parent.?name|organisation|organization|company|nominee|spouse|अभिभावक|(?:exam|test|preferred).*(?:city|centre|center)|(?:school|college|university).*address/i.test(d))return null;
+    if(/domicile|निवास.?राज्य/i.test(d))return 'domicile';
     // Generic "Name" applies only when the semantic label is exactly Name; never bank/college names.
     for(const [key,rule]of specs)if(rule.test(d))return key;
     if((el.labels&&Array.from(el.labels).some(l=>/^(name|नाम)\s*[:*]?$/i.test(l.textContent.trim())))||/^(name|नाम)$/i.test(el.name||el.id||''))return 'fullName';
@@ -60,12 +66,21 @@ function avsarGoFormAgent(mode, payload) {
     payment:flagElements.some(el=>/cvv|cvc|card.?number|upi|payment|भुगतान/i.test(descriptor(el))),
     files:flagElements.some(el=>el.type==='file'),crossOriginFrame:blockedFrames.length>0
   };
-  const matches=flags.login||flags.payment?[]:all.map(el=>({element:el,key:keyFor(el)})).filter(m=>m.key&&blank(m.element));
+  const candidates=flags.login||flags.payment?[]:all.map((el,i)=>({element:el,fieldId:'f'+i,key:keyFor(el)})).filter(m=>visible(m.element)&&!secret(m.element)&&blank(m.element)).slice(0,80);
+  const matches=candidates.filter(m=>m.key);
   const fields=[...new Set(matches.map(m=>m.key))];
   const page=location.origin+location.pathname;
-  const signature=page+':'+matches.map(m=>m.key+'@'+descriptor(m.element)).join('|')+':'+JSON.stringify(flags);
-  const unknownRequired=flags.login||flags.payment?0:flagElements.filter(el=>el.required&&!secret(el)&&!keyFor(el)&&['INPUT','TEXTAREA','SELECT'].includes(el.tagName)).length;
-  if(mode==='scan')return {ok:true,page,signature,fields,flags,detected:matches.length,unknownRequired};
+  const uploads=flags.login||flags.payment?[]:all.map((el,i)=>({element:el,fieldId:'f'+i})).filter(m=>m.element.type==='file'&&visible(m.element));
+  const metadata=m=>({fieldId:m.fieldId,key:m.key||'',label:descriptor(m.element),type:m.element.tagName==='SELECT'?'select':m.element.tagName==='TEXTAREA'?'textarea':m.element.type||'text',required:!!m.element.required,maxLength:m.element.maxLength,options:m.element.tagName==='SELECT'?Array.from(m.element.options).filter(o=>!o.disabled).slice(0,80).map(o=>o.textContent.slice(0,100)):[]});
+  const descriptors=candidates.map(metadata);
+  const signature=page+':'+JSON.stringify(descriptors)+':'+uploads.map(m=>m.fieldId+'@'+descriptor(m.element)).join('|')+':'+JSON.stringify(flags);
+  const unknownRequired=candidates.filter(m=>m.element.required&&!m.key).length;
+  if(mode==='scan')return {ok:true,page,signature,fields,flags,detected:matches.length,unknownRequired,candidates:descriptors,uploads:uploads.map(m=>({fieldId:m.fieldId,label:descriptor(m.element),accept:m.element.getAttribute('accept')||''}))};
+  if(mode==='upload'){
+    if(!payload||payload.signature!==signature)return {ok:false,error:'PAGE_CHANGED'};
+    const target=uploads.find(m=>m.fieldId===payload.fieldId);if(!target)return {ok:false,error:'Upload field unavailable'};
+    target.element.click();return {ok:true,pickerOpened:true,neverSubmitted:true};
+  }
   if(mode!=='fill'||!payload||typeof payload.fields!=='object')return {ok:false,error:'Invalid approved fields'};
   if(payload.signature!==signature)return {ok:false,error:'PAGE_CHANGED',filled:[]};
   const filled=[],skipped=[];
@@ -75,23 +90,27 @@ function avsarGoFormAgent(mode, payload) {
     if(setter)setter.call(el,value);else el.value=value;
     el.dispatchEvent(new view.Event('input',{bubbles:true}));el.dispatchEvent(new view.Event('change',{bubbles:true}));
   }
-  for(const m of matches){
-    const el=m.element,key=m.key;if(!Object.prototype.hasOwnProperty.call(payload.fields,key)||!blank(el))continue;
-    let value=String(payload.fields[key]||'').trim();if(!value||value.length>(key==='address'?500:180)){skipped.push(key);continue;}
-    if(el.maxLength>=0&&value.length>el.maxLength){skipped.push(key);continue;}
+  const allowed=new Set(specs.map(s=>s[0]));
+  for(const m of candidates){
+    const mapped=payload.mappings?.[m.fieldId],key=m.key||(allowed.has(mapped)?mapped:null),custom=Object.prototype.hasOwnProperty.call(payload.custom||{},m.fieldId),el=m.element;
+    if((!key&&!custom)||(!custom&&!Object.prototype.hasOwnProperty.call(payload.fields,key))||!blank(el))continue;
+    const name=key||'field:'+m.fieldId;let value=String(custom?payload.custom[m.fieldId]:payload.fields[key]||'').trim();
+    if(!value||value.length>(key==='address'||el.tagName==='TEXTAREA'?500:180)||/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(value)){skipped.push(name);continue;}
+    if(el.maxLength>=0&&value.length>el.maxLength){skipped.push(name);continue;}
+    let expected=value;
     if(el.tagName==='SELECT'){
       const norm=s=>String(s).trim().toLowerCase();const aliases={male:['male','m','पुरुष'],female:['female','f','महिला'],other:['other','others','अन्य']};
       const values=aliases[norm(value)]||[norm(value)];
       const option=Array.from(el.options).find(o=>!o.disabled&&o.value!==''&&(values.includes(norm(o.textContent))||norm(o.value)===norm(value)));
-      if(!option){skipped.push(key);continue;}
+      if(!option){skipped.push(name);continue;}expected=option.value;
       const view=el.ownerDocument.defaultView;
       Object.getOwnPropertyDescriptor(view.HTMLSelectElement.prototype,'value').set.call(el,option.value);
       el.dispatchEvent(new view.Event('input',{bubbles:true}));el.dispatchEvent(new view.Event('change',{bubbles:true}));
     }else{
       if(el.type==='date'){const d=value.match(/^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})$/);if(d)value=`${d[3]}-${d[2].padStart(2,'0')}-${d[1].padStart(2,'0')}`;}
-      setText(el,value);
+      expected=value;setText(el,value);
     }
-    if(String(el.value||'').trim())filled.push(key);else skipped.push(key);
+    if(String(el.value||'').trim()===String(expected).trim())filled.push(name);else skipped.push(name);
   }
   return {ok:true,filled,skipped,neverSubmitted:true};
 }

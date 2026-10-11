@@ -118,6 +118,23 @@ public final class SecureVault {
         if(!found)throw new SecurityException("Unknown document");
         writeEncrypted("documents.sec",changed.toString().getBytes(StandardCharsets.UTF_8));
         file("doc_"+id+".sec").delete();
+        file("doc_"+id+".ocr.sec").delete();
+        writeEncrypted("application.sec",new JSONObject().put("status","none").toString().getBytes(StandardCharsets.UTF_8));
+    }
+    public synchronized void saveScan(String id,JSONObject scan) throws Exception {
+        documentMeta(id);if(scan.toString().length()>30000)throw new IOException("Scan is too large");
+        writeEncrypted("doc_"+id+".ocr.sec",scan.toString().getBytes(StandardCharsets.UTF_8));
+    }
+    public synchronized JSONObject scan(String id) throws Exception {
+        documentMeta(id);byte[] raw=readEncrypted("doc_"+id+".ocr.sec");
+        return raw==null?new JSONObject():new JSONObject(new String(raw,StandardCharsets.UTF_8));
+    }
+    public synchronized void saveApplication(JSONObject value) throws Exception {
+        if(value.toString().length()>120000)throw new IOException("Application review is too large");
+        writeEncrypted("application.sec",value.toString().getBytes(StandardCharsets.UTF_8));
+    }
+    public synchronized JSONObject application() throws Exception {
+        byte[] raw=readEncrypted("application.sec");return raw==null?new JSONObject():new JSONObject(new String(raw,StandardCharsets.UTF_8));
     }
     public synchronized void saveWorkspace(JSONObject data) throws Exception {
         if(data.toString().length()>480000)throw new IllegalArgumentException("Chat storage limit reached");
@@ -140,7 +157,7 @@ public final class SecureVault {
         // Deletion must also work when the metadata index is corrupt.
         File[] files=ctx.getFilesDir().listFiles();
         if(files!=null)for(File f:files){
-            String n=f.getName();if(n.equals("profile.sec")||n.equals("documents.sec")||n.equals("gemini.sec")||n.equals("workspace.sec")||n.equals("ai-settings.sec")||n.startsWith("backend-")||n.startsWith("doc_")||n.endsWith(".pending"))
+            String n=f.getName();if(n.equals("application.sec")||n.equals("profile.sec")||n.equals("documents.sec")||n.equals("gemini.sec")||n.equals("workspace.sec")||n.equals("ai-settings.sec")||n.startsWith("backend-")||n.startsWith("doc_")||n.endsWith(".pending"))
                 if(f.exists()&&!f.delete())throw new IOException("Could not delete saved data");
         }
         KeyStore store=KeyStore.getInstance("AndroidKeyStore");store.load(null);if(store.containsAlias(KEY_ALIAS))store.deleteEntry(KEY_ALIAS);

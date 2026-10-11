@@ -22,6 +22,8 @@ public final class ProfileRulesTest {
         check(ProfileRules.validate(Map.of("pincode","110001")).get("pincode").equals("110001"),"Postal pincode supported");
         check(ProfileRules.fromOcr("DOB: 31/02/2024").isEmpty(),"Invalid OCR date withheld");
         check(!ProfileRules.fromOcr("Issue date: 21/01/2024").containsKey("dob"),"Issue date not DOB");
+        check(ProfileRules.validate(Map.of("school","Sample School","board","CBSE","passingYear","2020","percentage","85.50%","rollNumber","TEST-2020/12")).size()==5,"Reviewed educational data supported");
+        invalid("passingYear","2999");invalid("passingYear","abcd");invalid("percentage","101");invalid("percentage","bad");invalid("rollNumber","<script>");
         System.out.println("Profile/OCR rules: "+count+" checks passed");
     }
 }

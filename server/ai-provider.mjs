@@ -68,19 +68,22 @@ export function geminiGeneration(model,maxOutputTokens){
   else if(/^gemini-2\.5-flash/.test(model))generation.thinkingConfig={thinkingBudget:0};
   return generation;
 }
-export async function generateReply(client,{provider,model,key,prompt,messages,maxOutputTokens},signal){
+export async function generateReply(client,{provider,model,key,prompt,messages,maxOutputTokens,schema},signal){
   let answer;
   if(provider==='gemini'){
-    const data=await client.request('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':key},body:JSON.stringify({systemInstruction:{parts:[{text:prompt}]},contents:messages.map(m=>({role:m.role==='user'?'user':'model',parts:[{text:m.text}]})),generationConfig:geminiGeneration(model,maxOutputTokens)})},signal);
+    const generationConfig=geminiGeneration(model,maxOutputTokens);
+    if(schema)Object.assign(generationConfig,{responseMimeType:'application/json',responseJsonSchema:schema});
+    const data=await client.request('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':key},body:JSON.stringify({systemInstruction:{parts:[{text:prompt}]},contents:messages.map(m=>({role:m.role==='user'?'user':'model',parts:[{text:m.text}]})),generationConfig})},signal);
     answer=(data.candidates?.[0]?.content?.parts||[]).filter(p=>!p.thought).map(p=>p.text||'').join('\n');
   }else{
     const payload={model,messages:[{role:'system',content:prompt},...messages.map(m=>({role:m.role,content:m.text}))],max_completion_tokens:maxOutputTokens,store:false};
+    if(schema)payload.response_format={type:'json_schema',json_schema:{name:'avsargo_application',strict:true,schema}};
     if(/^gpt-[5-9]/.test(model))payload.reasoning_effort='low';
     const data=await client.request('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+key},body:JSON.stringify(payload)},signal);
     answer=data.choices?.[0]?.message?.content;
   }
   if(typeof answer!=='string'||!answer.trim())throw error(502,'EMPTY_AI_REPLY','The AI did not return a text reply. Test connection to select a working model.');
-  return answer.slice(0,15000);
+  return answer.slice(0,schema?40000:15000);
 }
 export async function testSavedProvider(client,{provider,key,prompt},clock=Date.now){
   const started=clock(),overall=AbortSignal.timeout(42000);

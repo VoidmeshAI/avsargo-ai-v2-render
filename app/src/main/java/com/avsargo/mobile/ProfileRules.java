@@ -11,9 +11,11 @@ import java.util.regex.Pattern;
 /** Shared review/OCR rules. Does not accept government IDs or login/payment secrets. */
 public final class ProfileRules {
     public static final String[] KEYS={"fullName","firstName","middleName","lastName","fatherName","motherName",
-        "dob","mobile","email","address","state","city","district","pincode","gender","nationality","qualification"};
+        "dob","mobile","email","address","state","city","district","pincode","gender","nationality","qualification",
+        "category","domicile","board","school","passingYear","percentage","course","rollNumber"};
     public static final String[] LABELS={"Full name","First name","Middle name","Last name","Father's name","Mother's name",
-        "Date of birth","Mobile number","Email","Address","State","City","District","Postal PIN code","Gender","Nationality","Highest qualification"};
+        "Date of birth","Mobile number","Email","Address","State","City","District","Postal PIN code","Gender","Nationality","Highest qualification",
+        "Category","Domicile state","Education board / university","School / college","Passing year","Percentage","Course / discipline","Education roll number"};
     private ProfileRules(){}
     public static String label(String key){for(int i=0;i<KEYS.length;i++)if(KEYS[i].equals(key))return LABELS[i];return "Form detail";}
     public static Map<String,String> validate(Map<String,String> input){
@@ -30,6 +32,12 @@ public final class ProfileRules {
                 throw new IllegalArgumentException("Email: enter a valid address");
             else if("pincode".equals(key)&&!value.matches("[1-9][0-9]{5}"))
                 throw new IllegalArgumentException("Postal PIN code: enter 6 digits");
+            else if("passingYear".equals(key)&&(!value.matches("[0-9]{4}")||Integer.parseInt(value)<1950||Integer.parseInt(value)>LocalDate.now().getYear()))
+                throw new IllegalArgumentException("Passing year: enter a valid completed year");
+            else if("percentage".equals(key)&&(!value.matches("[0-9]{1,3}(?:\\.[0-9]{1,2})?%?")||Double.parseDouble(value.replace("%",""))>100))
+                throw new IllegalArgumentException("Percentage: enter a number from 0 to 100");
+            else if("rollNumber".equals(key)&&!value.matches("[\\p{L}0-9 /.-]{1,60}"))
+                throw new IllegalArgumentException("Education roll number: check the printed value");
             else if("dob".equals(key)){
                 try{
                     String normalized=value.replace('-','/').replace('.','/');

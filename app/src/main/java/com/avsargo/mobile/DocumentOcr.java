@@ -24,9 +24,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.regex.*;
 
-/** On-device OCR; neither scans nor images are transmitted to Gemini. */
+/** On-device OCR. Bounded scan text can be analysed by AI after a separate user consent. */
 public final class DocumentOcr {
-    public interface Listener { void result(JSONObject fields); void error(String message); }
+    public interface Listener { void result(JSONObject scan); void error(String message); }
     private final Activity activity;
     public DocumentOcr(Activity activity) {this.activity=activity;}
 
@@ -34,6 +34,7 @@ public final class DocumentOcr {
         new Thread(() -> {
             try {
                 final ArrayList<Bitmap> pages = new ArrayList<>();
+                int totalPages=1;
                 if ("application/pdf".equals(mime)) {
                     // Android PdfRenderer requires a seekable file descriptor. Temporary plaintext remains
                     // only in the app-private cache, then deleted in finally, even on an OCR error.
@@ -42,7 +43,7 @@ public final class DocumentOcr {
                         try(FileOutputStream out=new FileOutputStream(temp)){out.write(bytes);out.getFD().sync();}
                         try(ParcelFileDescriptor fd=ParcelFileDescriptor.open(temp,ParcelFileDescriptor.MODE_READ_ONLY);
                             PdfRenderer renderer=new PdfRenderer(fd)) {
-                            int n=Math.min(3,renderer.getPageCount());
+                            totalPages=renderer.getPageCount();int n=Math.min(3,totalPages);
                             for(int i=0;i<n;i++) try(PdfRenderer.Page p=renderer.openPage(i)) {
                                 int w=Math.max(1,p.getWidth()),h=Math.max(1,p.getHeight());
                                 float scale=Math.min(2.0f,Math.min(1900f/w,2600f/h));
@@ -70,22 +71,23 @@ public final class DocumentOcr {
                     pages.add(bm);
                 }
                 if(pages.isEmpty())throw new IllegalArgumentException("Empty document");
-                activity.runOnUiThread(()-> recognizeAllPages(pages,callback));
+                final int pageCount=totalPages;activity.runOnUiThread(()-> recognizeAllPages(pages,pageCount,callback));
             } catch(Exception e) {activity.runOnUiThread(()->callback.error("OCR failed: "+e.getMessage()));}
         },"avsargo-ocr-prepare").start();
     }
 
-    private void recognizeAllPages(ArrayList<Bitmap> pages,Listener cb) {
+    private void recognizeAllPages(ArrayList<Bitmap> pages,int totalPages,Listener cb) {
         TextRecognizer latin=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
         TextRecognizer hindi=TextRecognition.getClient(new DevanagariTextRecognizerOptions.Builder().build());
         StringBuilder result=new StringBuilder();
-        scanPage(pages,0,latin,hindi,result,cb);
+        scanPage(pages,0,totalPages,latin,hindi,result,cb);
     }
-    private void scanPage(ArrayList<Bitmap> pages,int i,TextRecognizer latin,TextRecognizer hindi,StringBuilder all,Listener cb) {
+    private void scanPage(ArrayList<Bitmap> pages,int i,int totalPages,TextRecognizer latin,TextRecognizer hindi,StringBuilder all,Listener cb) {
         if(i>=pages.size()) {
             latin.close();hindi.close();
-            JSONObject proposed=parseFields(all.toString());
-            cb.result(proposed);return;
+            String raw=all.toString(),text=raw.substring(0,Math.min(raw.length(),12000));JSONObject scan=new JSONObject();
+            try{scan.put("fields",parseFields(text)).put("text",text).put("pages",pages.size()).put("totalPages",totalPages).put("truncated",totalPages>pages.size()||raw.length()>12000);}catch(Exception ignored){}
+            cb.result(scan);return;
         }
         Bitmap bitmap=pages.get(i);
         InputImage img=InputImage.fromBitmap(bitmap,0);
@@ -98,7 +100,7 @@ public final class DocumentOcr {
             if(a.isSuccessful())all.append(a.getResult().getText()).append('\n');
             if(b.isSuccessful())all.append(b.getResult().getText()).append('\n');
             bitmap.recycle();
-            scanPage(pages,i+1,latin,hindi,all,cb);
+            scanPage(pages,i+1,totalPages,latin,hindi,all,cb);
         });
     }
     public static JSONObject parseFields(String text) {return new JSONObject(ProfileRules.fromOcr(text));}

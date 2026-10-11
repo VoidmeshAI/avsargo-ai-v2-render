@@ -5,7 +5,7 @@ async function get(path){let error;for(let i=0;i<4;i++){try{return await fetch(o
 const expectedAdmin=await readFile(new URL('../server/public/admin.js',import.meta.url),'utf8');
 let liveAdmin='';for(let i=0;i<20;i++){const js=await get('/admin.js');if(js.status===200)liveAdmin=await js.text();if(liveAdmin===expectedAdmin)break;if(i<19)await new Promise(r=>setTimeout(r,5000));}
 assert.equal(liveAdmin===expectedAdmin,true,'Live admin JavaScript must match the checked-in repair');
-const health=await get('/health');assert.equal(health.status,200);assert.equal((await health.json()).version,13);
+const health=await get('/health');assert.equal(health.status,200);assert.equal((await health.json()).version,14);
 const config=await get('/api/app/config');assert.equal(config.status,200);const data=await config.json();assert.ok(data.branding?.name);assert.equal(typeof data.ai.ready,'boolean');assert.equal(typeof data.payment.ready,'boolean');assert.equal(data.secrets,undefined);
 assert.equal((await get('/api/admin/config')).status,401);
 const session=await get('/api/admin/session');assert.equal(session.status,200);const sessionData=await session.json();assert.equal(sessionData.authenticated,false);assert.equal(typeof sessionData.setupRequired,'boolean');

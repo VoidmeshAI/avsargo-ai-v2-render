@@ -30,8 +30,20 @@ public final class BackendClient {
         try{saved.put("account",call("/api/device/status","GET",null,true));vault.saveBackendState(saved);}catch(Exception ignored){}
     }
     public String chat(JSONObject request)throws Exception{
-        JSONObject reply=call("/api/chat","POST",new JSONObject().put("consent",true).put("messages",request.getJSONArray("messages")),true);
+        JSONObject payload=new JSONObject().put("consent",true).put("messages",request.getJSONArray("messages"));
+        if(request.optJSONObject("workflow")!=null)payload.put("workflow",request.getJSONObject("workflow"));
+        JSONObject reply=call("/api/chat","POST",payload,true);
         JSONObject saved=vault.backendState();if(reply.has("status")){saved.put("account",reply.getJSONObject("status"));vault.saveBackendState(saved);}return reply.getString("text");
+    }
+    public JSONObject analyseDocuments(JSONArray scans)throws Exception {
+        return applicationCall("/api/documents/analyse",new JSONObject().put("consent",true).put("documents",scans));
+    }
+    public JSONObject mapForm(JSONArray fields)throws Exception {
+        return applicationCall("/api/forms/map",new JSONObject().put("consent",true).put("fields",fields));
+    }
+    private JSONObject applicationCall(String path,JSONObject body)throws Exception {
+        JSONObject reply=call(path,"POST",body,true),saved=vault.backendState();
+        if(reply.has("status")){saved.put("account",reply.getJSONObject("status"));vault.saveBackendState(saved);}return reply;
     }
     public String checkout()throws Exception{return call("/api/payments/order","POST",new JSONObject(),true).getString("checkoutUrl");}
 }

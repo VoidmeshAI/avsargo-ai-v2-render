@@ -1,4 +1,4 @@
-name: Build AvsarGo V13 Android and admin
+name: Build AvsarGo V14 Android and admin
 on:
   workflow_dispatch:
   push:
@@ -33,24 +33,26 @@ jobs:
           node tests/form-agent.test.cjs
           node tests/ui-workflow.test.cjs
           node --test server/test/*.test.mjs
-          mkdir -p /tmp/avsargo-v13-tests
-          javac -d /tmp/avsargo-v13-tests app/src/main/java/com/avsargo/mobile/ProfileRules.java tests/ProfileRulesTest.java
-          java -cp /tmp/avsargo-v13-tests ProfileRulesTest
+          mkdir -p /tmp/avsargo-v14-tests
+          javac -d /tmp/avsargo-v14-tests app/src/main/java/com/avsargo/mobile/ProfileRules.java tests/ProfileRulesTest.java
+          java -cp /tmp/avsargo-v14-tests ProfileRulesTest
       - name: Lint and compile Android APK
         run: gradle --no-daemon :app:lintDebug :app:assembleDebug
       - name: Verify APK package and signature
         run: |
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose app/build/outputs/apk/debug/app-debug.apk
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging app/build/outputs/apk/debug/app-debug.apk > apk-package.txt
-          cp app/build/outputs/apk/debug/app-debug.apk AvsarGo_AI_V13_Android_Test.apk
-          sha256sum AvsarGo_AI_V13_Android_Test.apk > AvsarGo_AI_V13_Android_Test.apk.sha256
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" apksigner.jar
+          cp app/build/outputs/apk/debug/app-debug.apk AvsarGo_AI_V14_Android_Test.apk
+          sha256sum AvsarGo_AI_V14_Android_Test.apk > AvsarGo_AI_V14_Android_Test.apk.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: AvsarGo-AI-V13-Android-Test-APK
+          name: AvsarGo-AI-V14-Android-Test-APK
           path: |
-            AvsarGo_AI_V13_Android_Test.apk
-            AvsarGo_AI_V13_Android_Test.apk.sha256
+            AvsarGo_AI_V14_Android_Test.apk
+            AvsarGo_AI_V14_Android_Test.apk.sha256
             apk-package.txt
+            apksigner.jar
           if-no-files-found: error
           retention-days: 14
   visual:
@@ -68,10 +70,12 @@ jobs:
       - name: Verify rendered app and admin screens
         env:
           PLAYWRIGHT_PATH: /tmp/avsargo-browser/node_modules/playwright
-        run: node scripts/visual-check.mjs
+        run: |
+          node scripts/visual-check.mjs
+          node scripts/document-browser-check.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: AvsarGo-V13-UI-Verification
+          name: AvsarGo-V14-UI-Verification
           path: visual-checks/*.png
           retention-days: 14

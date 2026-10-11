@@ -2,7 +2,7 @@ name: Verify AvsarGo admin in Chrome and Safari
 on:
   workflow_dispatch:
   push:
-    branches: ['android/v13-polished-admin']
+    branches: ['android/v14-documents-ai-autofill']
     paths: ['server/**', 'scripts/admin-setup-check.mjs', 'scripts/admin-ai-check.mjs', '.github/workflows/admin-ui-check.yml']
 permissions:
   contents: read
@@ -32,5 +32,5 @@ jobs:
       - name: Save admin screenshots
         uses: actions/upload-artifact@v4
         with:
-          name: AvsarGo-V13-admin-ai-screenshots
+          name: AvsarGo-V14-admin-ai-screenshots
           path: visual-checks/*.png
