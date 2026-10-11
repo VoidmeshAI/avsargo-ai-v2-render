@@ -27,5 +27,5 @@ jobs:
         if: always()
         with:
           name: AvsarGo-V15-Documents-Verification
-          path: visual-checks/documents*.png
+          path: visual-checks/v15-*.png
           retention-days: 14

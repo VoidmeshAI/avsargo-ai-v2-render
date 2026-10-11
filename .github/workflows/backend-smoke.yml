@@ -19,4 +19,10 @@ jobs:
         run: node scripts/live-backend-check.mjs
       - name: Verify a real chat with the saved AI key
         if: contains(github.event.head_commit.message, '[verify live AI]')
-        run: node scripts/live-ai-check.mjs
+        run: node scripts/live-advanced-check.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: AvsarGo-V15-Live-Verification
+          path: visual-checks/v15-live-results.json
+          retention-days: 14
