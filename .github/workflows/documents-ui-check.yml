@@ -2,7 +2,7 @@ name: Verify document AI and autofill workflow
 on:
   workflow_dispatch:
   push:
-    branches: ['android/v14-documents-ai-autofill']
+    branches: ['android/v15-advanced-assistant']
     paths: ['app/src/main/assets/app/**', 'server/**', 'scripts/document-browser-check.mjs', '.github/workflows/documents-ui-check.yml']
 permissions:
   contents: read
@@ -26,6 +26,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: AvsarGo-V14-Documents-Verification
+          name: AvsarGo-V15-Documents-Verification
           path: visual-checks/documents*.png
           retention-days: 14

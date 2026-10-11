@@ -6,13 +6,20 @@ android {
    applicationId 'com.avsargo.mobile.beta.v14'
    minSdk 26
    targetSdk 35
-   versionCode 14
-   versionName '14.0-test'
+   versionCode 15
+   versionName '15.0-test'
+   testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
  }
  lint { abortOnError true; checkReleaseBuilds true }
  compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
 dependencies {
+ androidTestImplementation 'androidx.test:core:1.6.1'
+ androidTestImplementation 'androidx.test:runner:1.6.2'
+ androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+ androidTestImplementation 'androidx.test:rules:1.6.1'
+ androidTestImplementation 'androidx.test.uiautomator:uiautomator:2.3.0'
  implementation 'com.google.mlkit:text-recognition:16.0.1'
  implementation 'com.google.mlkit:text-recognition-devanagari:16.0.1'
 }
+

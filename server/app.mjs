@@ -1,20 +1,22 @@
 import {randomBytes,createHash,createHmac,timingSafeEqual,scryptSync} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
-import {createProviderClient,generateReply,testSavedProvider} from './ai-provider.mjs';
-import {documentsInput,documentPrompt,documentSchema,parseDocumentResult,mappingInput,mappingPrompt,mappingSchema,parseMappingResult,workflowContext} from './application-ai.mjs';
+import {createProviderClient,generateReply,generateSearchReply,testSavedProvider} from './ai-provider.mjs';
+import {documentsInput,documentPrompt,documentSchema,parseDocumentResult,mappingInput,mappingPrompt,mappingSchema,mappingSchemaFor,parseMappingResult,workflowContext} from './application-ai.mjs';
+
+import {knownApplication,publicCatalog,officialFormUrl,isLiveQuestion,publicQuery,verifySearchSources,searchPrompt} from './application-catalog.mjs';
 
 const random=()=>randomBytes(32).toString('base64url');
 export const hash=value=>createHash('sha256').update(value).digest('hex');
 const equal=(a,b)=>{const x=Buffer.from(String(a)),y=Buffer.from(String(b));return x.length===y.length&&timingSafeEqual(x,y);};
 export const passwordHash=password=>{const salt=randomBytes(16).toString('hex');return salt+':'+scryptSync(password,salt,64).toString('hex');};
 const checkPassword=(password,value)=>{try{const [salt,digest]=value.split(':');return equal(scryptSync(password,salt,64).toString('hex'),digest);}catch{return false;}};
-const basePrompt='You are AvsarGo, an Indian application assistant integrated into an Android document and form-filling app. Use concise Hindi, Hinglish or English matching the user. The app can import PDF/JPG/PNG, scan on-device, analyse selected scan text using its configured AI, show source-backed proposals for user approval, and fill reviewed details in supported blank fields in its in-app browser. It can share a saved document with a website after the user approves the upload. Guide the user through Upload documents → Analyse with AI → Review details → Open form / AI Assist. Do not say you or the app cannot read documents or fill forms. Distinguish an available capability from an action actually completed: claim analysis or filling only when supplied workflow context confirms it. Ordinary chat does not receive document contents or actual profile values; selected document analysis is a separate consented operation. If analysis has not happened, ask them to use Upload documents / Analyse with AI. Ask for application type and state only where relevant; PAN is central, while driving licence needs state. Missing or conflicting details go to a review popup; never guess applicant data. Login, OTP, CAPTCHA, payment, declarations, eSign and final submission are performed by the user. Never request their secrets in chat. Do not invent eligibility, fees or deadlines. Use configured official links instead of inventing links, and have the applicant verify the official notice.';
+const basePrompt='You are AvsarGo, a professional Indian application assistant. Speak concise natural Hinglish/English/Hindi matching the applicant. The Android app can automatically resolve the named official form, import documents, read all scanned pages and selected page images with AI, review source-backed identity/contact/education/business/bank facts, and autofill approved details and uniquely matched saved files. Permissions are remembered once and can be revoked. Do not repeatedly tell customers to open Settings/Admin or type a URL; owner administration is separate. Ask only for missing application choice/state or applicant details. Describe actual completed actions using workflow context, never invent a completed scan/fill. Ordinary chat does not receive applicant values or private document contents. Uploaded document analysis is a separate operation. Exact/current vacancies, dates and fees need official live sources. Never invent links, results, eligibility, deadlines or fees. Login, OTP, CAPTCHA, declarations, payment, eSign and final submission are applicant actions. Never ask for their secrets. Use actual official application routing. Avoid long generic disclaimers and repeated checklists.';
 export const defaults=()=>({revision:1,branding:{name:'AvsarGo AI',greeting:'Kis form mein madad chahiye?',tagline:'A little guidance. A lot less paperwork.',theme:'dark',accent:'#bcead5',supportEmail:'',supportUrl:'',announcement:''},ai:{enabled:false,provider:'gemini',model:'',prompt:'',freeDailyLimit:8,paidDailyLimit:80,globalDailyLimit:500,maxOutputTokens:1200},payment:{enabled:false,mode:'test',planName:'AvsarGo Plus',pricePaise:9900,durationDays:30},maintenance:{enabled:false,message:'We will be back shortly. Your saved documents are available offline.'},portals:{pan:'https://www.incometax.gov.in/iec/foportal/',dl:'https://parivahan.gov.in/parivahan/',ssc:'https://ssc.gov.in/',rrb:'https://www.rrcb.gov.in/rrbs.html',income:'',caste:'',domicile:'',passport:'https://www.passportindia.gov.in/',voter:''}});
 const freshState=()=>({config:defaults(),secrets:{},admin:null,devices:{},orders:{},registrations:{},usage:{},audit:[]});
 function fail(status,message){const error=new Error(message);error.status=status;throw error;}
 const text=(value,min,max,label)=>{if(typeof value!=='string'||value.trim().length<min||value.trim().length>max)fail(400,'Invalid '+label);return value.trim();};
 const integer=(value,min,max,label)=>{if(!Number.isInteger(value)||value<min||value>max)fail(400,'Invalid '+label);return value;};
-function officialUrl(value){if(value==='')return '';try{const url=new URL(value);if(url.protocol!=='https:'||url.username||url.password||url.port&&!['443',''].includes(url.port)||!(/(?:\.gov\.in|\.nic\.in)$/i.test(url.hostname)||['onlineservices.proteantech.in','www.onlineservices.proteantech.in','pan.utiitsl.com','www.pan.utiitsl.com'].includes(url.hostname)))throw Error();return url.href;}catch{fail(400,'Portal must be an official HTTPS government or verified PAN operator address');}}
+function officialUrl(value){if(value==='')return '';if(!officialFormUrl(value))fail(400,'Portal must be an official HTTPS government or verified operator address');return new URL(value).href;}
 function validateConfig(input){
   const c=structuredClone(input);if(!c||typeof c!=='object')fail(400,'Invalid settings');
   for(const key of ['branding','ai','payment','maintenance','portals'])if(!c[key]||typeof c[key]!=='object')fail(400,'Missing '+key);
@@ -43,7 +45,7 @@ const aiVerified=state=>!!(aiKey(state)&&state.aiConnection?.status==='connected
 const aiReady=state=>!!(state.config.ai.enabled&&aiVerified(state));
 function aiConnection(state){const c=state.aiConnection;return c?{status:c.status,model:c.model||'',checkedAt:c.checkedAt||'',latencyMs:c.latencyMs||0,code:c.code||'',message:c.message||''}:{status:'untested',model:'',message:aiKey(state)?'Key saved. Test connection to enable AI.':'Add a key, save, then test the connection.'};}
 const paymentReady=state=>{const k=paymentKeys(state,state.config.payment.mode);return !!(state.config.payment.enabled&&k.id&&k.secret);};
-function publicConfig(state){const c=state.config;return {revision:c.revision,branding:c.branding,maintenance:c.maintenance,portals:c.portals,ai:{ready:aiReady(state),documentAnalysisReady:aiReady(state),formAssistReady:aiReady(state),freeDailyLimit:c.ai.freeDailyLimit,paidDailyLimit:c.ai.paidDailyLimit},payment:{ready:paymentReady(state),mode:c.payment.mode,planName:c.payment.planName,pricePaise:c.payment.pricePaise,durationDays:c.payment.durationDays}};}
+function publicConfig(state){const c=state.config;return {revision:c.revision,branding:c.branding,maintenance:c.maintenance,portals:c.portals,ai:{ready:aiReady(state),documentAnalysisReady:aiReady(state),formAssistReady:aiReady(state),liveSearchReady:aiReady(state),freeDailyLimit:c.ai.freeDailyLimit,paidDailyLimit:c.ai.paidDailyLimit},directory:publicCatalog(),payment:{ready:paymentReady(state),mode:c.payment.mode,planName:c.payment.planName,pricePaise:c.payment.pricePaise,durationDays:c.payment.durationDays}};}
 
 export async function createApp({store,setupHash,setupExpires=Date.now()+86400000,origin='http://localhost:3000',fetchImpl=fetch,clock=Date.now,secureCookies=true,ipSalt=random(),report=()=>{}}){
   let state=(await store.read())||freshState(),queue=Promise.resolve();
@@ -56,7 +58,7 @@ export async function createApp({store,setupHash,setupExpires=Date.now()+8640000
   function limit(key,count,period=60000){const now=clock();let r=rates.get(key);if(!r||now-r.at>=period){r={at:now,count:0};rates.set(key,r);}if(++r.count>count)fail(429,'Too many requests. Please try later.');if(rates.size>10000)for(const[k,v]of rates)if(now-v.at>86400000)rates.delete(k);}
   const ip=req=>hash(ipSalt+'|'+(req.headers.get('x-forwarded-for')?.split(',').at(-1)?.trim()||'local'));
   const json=(data,status=200,extra={})=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json;charset=utf-8','cache-control':'no-store',...extra}});
-  async function body(req){const raw=await req.text();if(Buffer.byteLength(raw)>262144)fail(413,'Request is too large');try{return JSON.parse(raw);}catch{fail(400,'Invalid JSON');}}
+  async function body(req){const raw=await req.text();if(Buffer.byteLength(raw)>5000000)fail(413,'Request is too large');try{return JSON.parse(raw);}catch{fail(400,'Invalid JSON');}}
   function sameOrigin(req){if(req.headers.get('origin')!==origin)fail(403,'Request origin rejected');}
   function session(req,write=false){const token=req.headers.get('cookie')?.match(/(?:^|;\s*)av_admin=([^;]+)/)?.[1];const s=token&&sessions.get(hash(token));if(!s||s.expire<clock()){if(token)sessions.delete(hash(token));fail(401,'Sign in to continue');}if(write){sameOrigin(req);if(!equal(req.headers.get('x-csrf-token')||'',s.csrf))fail(403,'Request verification failed');}return s;}
   const cookie=(value,age)=>'av_admin='+value+'; Path=/; HttpOnly; SameSite=Strict; Max-Age='+age+(secureCookies?'; Secure':'');
@@ -65,17 +67,35 @@ export async function createApp({store,setupHash,setupExpires=Date.now()+8640000
   const paid=d=>d.plusUntil>clock();
   function deviceStatus(id){const d=state.devices[id],used=d.day===date()?d.used:0;return {plusUntil:d.plusUntil||0,paid:paid(d),used,dailyLimit:paid(d)?state.config.ai.paidDailyLimit:state.config.ai.freeDailyLimit};}
   async function provider(url,options){let res;try{res=await fetchImpl(url,{...options,redirect:'error',signal:AbortSignal.timeout(35000)});}catch{fail(502,'Provider connection failed. Try again.');}if(!res.ok){if(res.status===401||res.status===403)fail(502,'Provider rejected the configured key. Contact support.');if(res.status===429)fail(503,'Provider limit reached. Try again later.');fail(502,'Provider request failed (HTTP '+res.status+')');}try{return await res.json();}catch{fail(502,'Provider returned an unreadable response');}}
-  async function chat(messages,context){const c=state.config.ai;return generateReply(aiClient,{...c,key:aiKey(state),messages,prompt:basePrompt+'\nAdditional app instructions: '+c.prompt+(context?'\nCurrent app workflow facts (no applicant values): '+JSON.stringify(context):''),maxOutputTokens:Math.min(c.maxOutputTokens,state.aiConnection?.outputTokenLimit||8192)});}
-  async function applicationAi(d,operation,input,prompt,schema,parse){
-    if(state.config.maintenance.enabled)fail(503,state.config.maintenance.message);
-    if(!aiReady(state))fail(503,'AI connection needs a successful test in the owner Admin panel.');
-    limit('application-ai:'+ip(d.req),12);if(busy.has(d.id))fail(409,'Please wait for the current AI operation');
-    busy.add(d.id);const day=date();let reserved=false;
-    try{
-      await mutate(s=>{const user=s.devices[d.id];if(user.day!==day){user.day=day;user.used=0;}const max=paid(user)?s.config.ai.paidDailyLimit:s.config.ai.freeDailyLimit;if(user.used>=max)fail(429,'Daily AI limit reached. Try tomorrow or view Plus in Settings.');if((s.usage[day]||0)>=s.config.ai.globalDailyLimit)fail(429,'App AI limit reached for today.');user.used++;s.usage[day]=(s.usage[day]||0)+1;});reserved=true;
-      const c=state.config.ai,raw=await generateReply(aiClient,{...c,key:aiKey(state),prompt,schema,messages:[{role:'user',text:JSON.stringify(input)}],maxOutputTokens:Math.min(operation==='documents'?4096:2048,state.aiConnection?.outputTokenLimit||8192)});
-      return {...parse(raw,input),status:deviceStatus(d.id)};
+  const researchCache=new Map();
+  async function research(query){
+    const safe=publicQuery(query),cacheKey=hash(safe.toLowerCase()),cached=researchCache.get(cacheKey);if(cached&&clock()-cached.at<600000)return cached.result;
+    const c=state.config.ai,result=await generateSearchReply(aiClient,{...c,key:aiKey(state),query:'Today: '+new Date(clock()).toISOString().slice(0,10)+'\n'+safe,prompt:searchPrompt,maxOutputTokens:3000});
+    const sources=await verifySearchSources(result,fetchImpl);
+    const reply={text:sources.length?result.text:'Abhi official sources se is result ko verify nahi kar paya. Dobara search kar sakte hain.',sources,suggestions:result.suggestions,searchedAt:new Date(clock()).toISOString(),live:true};
+    if(sources.length){researchCache.set(cacheKey,{at:clock(),result:reply});if(researchCache.size>200)researchCache.delete(researchCache.keys().next().value);}return reply;
+  }
+  async function chat(messages,context){
+    const latest=messages.at(-1).text,prior=messages.filter(m=>m.role==='user').at(-2)?.text||'';
+    if(isLiveQuestion(latest)||/^[?？\s]+$/.test(latest)&&isLiveQuestion(prior))return research(isLiveQuestion(latest)?latest:prior);
+    const c=state.config.ai,text=await generateReply(aiClient,{...c,key:aiKey(state),messages,prompt:basePrompt+'\nAdditional owner instructions: '+c.prompt+(context?'\nActual app workflow facts (no applicant values): '+JSON.stringify(context):''),maxOutputTokens:Math.min(c.maxOutputTokens,state.aiConnection?.outputTokenLimit||8192)});return {text};
+  }
+  async function withAllowance(d,fn){
+    if(state.config.maintenance.enabled)fail(503,state.config.maintenance.message);if(!aiReady(state))fail(503,'Assistant is temporarily unavailable. Your documents are saved; try again shortly.');
+    limit('application-ai:'+ip(d.req),15);if(busy.has(d.id))fail(409,'Please wait for the current operation');busy.add(d.id);const day=date();let reserved=false;
+    try{await mutate(s=>{const user=s.devices[d.id];if(user.day!==day){user.day=day;user.used=0;}const max=paid(user)?s.config.ai.paidDailyLimit:s.config.ai.freeDailyLimit;if(user.used>=max)fail(429,'Today’s AI allowance is used. You can continue with reviewed details or try tomorrow.');if((s.usage[day]||0)>=s.config.ai.globalDailyLimit)fail(429,'Assistant allowance is temporarily reached. Try again later.');user.used++;s.usage[day]=(s.usage[day]||0)+1;});reserved=true;return {...await fn(),status:deviceStatus(d.id)};
     }catch(e){if(reserved)await mutate(s=>{if(s.devices[d.id]?.day===day)s.devices[d.id].used=Math.max(0,s.devices[d.id].used-1);s.usage[day]=Math.max(0,(s.usage[day]||0)-1);});throw e;}finally{busy.delete(d.id);}
+  }
+  async function applicationAi(d,operation,input,prompt,schema,parse){
+    return withAllowance(d,async()=>{
+      const c=state.config.ai;
+      if(operation==='documents'){
+        const groups=[];for(let i=0;i<input.documents.length;i+=2)groups.push(input.documents.slice(i,i+2));const results=[],errors=[];let lastError;
+        for(let i=0;i<groups.length;i+=2){const done=await Promise.allSettled(groups.slice(i,i+2).map(async documents=>{const attachments=documents.flatMap(doc=>doc.images.map(image=>({...image,documentId:doc.id}))),data={documents:documents.map(doc=>({id:doc.id,text:doc.text,imagePages:doc.images.map(image=>image.page)}))};const raw=await generateReply(aiClient,{...c,key:aiKey(state),prompt,schema,attachments,messages:[{role:'user',text:JSON.stringify(data)}],maxOutputTokens:Math.min(8192,state.aiConnection?.outputTokenLimit||8192)});return parse(raw,{documents});}));for(let j=0;j<done.length;j++){if(done[j].status==='fulfilled')results.push(done[j].value);else{lastError=done[j].reason;errors.push(...groups[i+j].map(doc=>({documentId:doc.id,message:'Analysis could not complete for this file. Retry this document.'})));}}}
+        if(!results.length)throw lastError;return {candidates:results.flatMap(r=>r.candidates).slice(0,500),meta:Object.assign({},...results.map(r=>r.meta)),documentTypes:results.flatMap(r=>r.documentTypes),coverage:results.flatMap(r=>r.coverage),errors,documentCount:input.documents.length,requiresReview:true};
+      }
+      const raw=await generateReply(aiClient,{...c,key:aiKey(state),prompt,schema,messages:[{role:'user',text:JSON.stringify(input)}],maxOutputTokens:Math.min(3072,state.aiConnection?.outputTokenLimit||8192)});return parse(raw,input);
+    });
   }
   async function testAI(revision,source='owner'){
     if(testingAI)fail(409,'A connection test is already running. Please wait.');
@@ -105,7 +125,7 @@ export async function createApp({store,setupHash,setupExpires=Date.now()+8640000
   async function staticFile(name,type){const content=await readFile(new URL('./public/'+name,import.meta.url));return new Response(content,{headers:{'content-type':type,'cache-control':'no-store'}});}
   async function handle(req){if(store.transaction)state=await store.read();const url=new URL(req.url),path=url.pathname,method=req.method;
     limit('requests:'+ip(req),180);
-    if(path==='/health'&&method==='GET')return json({ok:true,version:14});
+    if(path==='/health'&&method==='GET')return json({ok:true,version:15});
     if(path==='/api/app/config'&&method==='GET')return json(publicConfig(state));
     if(path==='/admin'||path==='/admin/')return staticFile('admin.html','text/html;charset=utf-8');
     if(path==='/admin.js')return staticFile('admin.js','application/javascript;charset=utf-8');
@@ -149,18 +169,23 @@ export async function createApp({store,setupHash,setupExpires=Date.now()+8640000
       await mutate(s=>{const count=s.registrations[address];if(count?.day===day&&count.count>=8)fail(429,'Device registration limit reached for today');s.registrations[address]={day,count:count?.day===day?count.count+1:1};s.devices[id]={created:clock(),day,used:0,plusUntil:0};for(const k of Object.keys(s.registrations))if(s.registrations[k].day!==day)delete s.registrations[k];});return json({token,status:deviceStatus(id)});
     }
     if(path==='/api/device/status'&&method==='GET'){const d=device(req);return json(deviceStatus(d.id));}
+    if(path==='/api/applications/resolve'&&method==='POST'){
+      const d=device(req),data=await body(req),query=publicQuery(data.query);limit('resolve:'+ip(req),30);const known=knownApplication(query,typeof data.state==='string'?data.state.slice(0,80):'',state.config);if(known)return json(known);
+      if(data.consent!==true||!aiReady(state))return json({status:'choose_application',applications:publicCatalog().applications,message:'Which application or exam do you mean?'});
+      return json(await withAllowance({...d,req},async()=>{const found=await research('Find the exact official application form for: '+query+(data.state?' in '+String(data.state).slice(0,80):'')),choices=found.sources.filter(s=>!new URL(s.url).pathname.toLowerCase().endsWith('.pdf')).map((source,index)=>({id:'discovered_'+index,name:source.title,url:source.url,verifiedBy:'live-official-source',verifiedOn:found.searchedAt}));if(choices.length===1)return {status:'resolved',application:choices[0]};return {status:'choose_application',applications:choices.length?choices:publicCatalog().applications,message:choices.length?'Choose the exact application':'Official application could not be verified. Choose the service.',sources:found.sources,suggestions:found.suggestions};}));
+    }
     if(path==='/api/documents/analyse'&&method==='POST'){
       const d=device(req),input=documentsInput(await body(req));return json(await applicationAi({...d,req},'documents',input,documentPrompt,documentSchema,parseDocumentResult));
     }
     if(path==='/api/forms/map'&&method==='POST'){
-      const d=device(req),input=mappingInput(await body(req));return json(await applicationAi({...d,req},'form',input,mappingPrompt,mappingSchema,parseMappingResult));
+      const d=device(req),input=mappingInput(await body(req));return json(await applicationAi({...d,req},'form',input,mappingPrompt,mappingSchemaFor(input),parseMappingResult));
     }
     if(path==='/api/chat'&&method==='POST'){
-      const d=device(req);if(state.config.maintenance.enabled)fail(503,state.config.maintenance.message);if(!aiReady(state))fail(503,'AI connection needs a successful test. In Admin → AI assistant, save the API key and tap Test connection.');limit('chat:'+ip(req),20);if(busy.has(d.id))fail(409,'Please wait for the current reply');
+      const d=device(req);if(state.config.maintenance.enabled)fail(503,state.config.maintenance.message);if(!aiReady(state))fail(503,'Assistant is temporarily unavailable. Try again shortly.');limit('chat:'+ip(req),20);if(busy.has(d.id))fail(409,'Please wait for the current reply');
       const data=await body(req);if(data.consent!==true)fail(400,'Cloud chat consent is required');if(!Array.isArray(data.messages)||!data.messages.length||data.messages.length>16)fail(400,'Invalid conversation');
       const messages=data.messages.map(m=>{if(!['user','assistant'].includes(m.role))fail(400,'Invalid role');return {role:m.role,text:text(m.text,1,5000,'message')};});if(messages.at(-1).role!=='user')fail(400,'Last message must be from the user');
       busy.add(d.id);const day=date();let reserved=false;
-      try{await mutate(s=>{const user=s.devices[d.id];if(user.day!==day){user.day=day;user.used=0;}const max=paid(user)?s.config.ai.paidDailyLimit:s.config.ai.freeDailyLimit;if(user.used>=max)fail(429,'Daily chat limit reached. Try tomorrow or view Plus in Settings.');if((s.usage[day]||0)>=s.config.ai.globalDailyLimit)fail(429,'App chat limit reached for today.');user.used++;s.usage[day]=(s.usage[day]||0)+1;for(const k of Object.keys(s.usage))if(k<new Date(clock()-30*86400000).toISOString().slice(0,10))delete s.usage[k];});reserved=true;const reply=await chat(messages,workflowContext(data.workflow));return json({text:reply,status:deviceStatus(d.id)});
+      try{await mutate(s=>{const user=s.devices[d.id];if(user.day!==day){user.day=day;user.used=0;}const max=paid(user)?s.config.ai.paidDailyLimit:s.config.ai.freeDailyLimit;if(user.used>=max)fail(429,'Today’s AI allowance is used. You can continue with reviewed details or try tomorrow.');if((s.usage[day]||0)>=s.config.ai.globalDailyLimit)fail(429,'App chat limit reached for today.');user.used++;s.usage[day]=(s.usage[day]||0)+1;for(const k of Object.keys(s.usage))if(k<new Date(clock()-30*86400000).toISOString().slice(0,10))delete s.usage[k];});reserved=true;const reply=await chat(messages,workflowContext(data.workflow));return json({...reply,status:deviceStatus(d.id)});
       }catch(error){if(reserved)await mutate(s=>{if(s.devices[d.id]?.day===day)s.devices[d.id].used=Math.max(0,s.devices[d.id].used-1);s.usage[day]=Math.max(0,(s.usage[day]||0)-1);});throw error;}finally{busy.delete(d.id);}
     }
     if(path==='/api/payments/order'&&method==='POST'){
@@ -183,7 +208,7 @@ export async function createApp({store,setupHash,setupExpires=Date.now()+8640000
     }
     const webhook=path.match(/^\/api\/payments\/webhook\/(test|live)$/);
     if(webhook&&method==='POST'){
-      const secret=paymentKeys(state,webhook[1]).webhook;if(!secret)fail(503,'Webhook secret is not configured');const raw=await req.text();if(Buffer.byteLength(raw)>262144)fail(413,'Webhook too large');const sig=createHmac('sha256',secret).update(raw).digest('hex');if(!equal(sig,req.headers.get('x-razorpay-signature')||''))fail(400,'Invalid webhook signature');let data;try{data=JSON.parse(raw);}catch{fail(400,'Invalid webhook');}
+      const secret=paymentKeys(state,webhook[1]).webhook;if(!secret)fail(503,'Webhook secret is not configured');const raw=await req.text();if(Buffer.byteLength(raw)>5000000)fail(413,'Webhook too large');const sig=createHmac('sha256',secret).update(raw).digest('hex');if(!equal(sig,req.headers.get('x-razorpay-signature')||''))fail(400,'Invalid webhook signature');let data;try{data=JSON.parse(raw);}catch{fail(400,'Invalid webhook');}
       if(['payment.captured','order.paid'].includes(data.event)){const p=data.payload?.payment?.entity,o=state.orders[p?.order_id];if(o&&o.mode===webhook[1]&&p.status==='captured'&&p.amount===o.amount&&p.currency==='INR'&&/^pay_[a-zA-Z0-9]+$/.test(p.id||''))await mutate(s=>settle(s,p.order_id,p.id));}return json({ok:true});
     }
     fail(404,'Not found');

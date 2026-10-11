@@ -2,8 +2,14 @@
    Explicit upload mode may open a file picker; it never clicks navigation or submit. */
 function avsarGoFormAgent(mode, payload) {
   'use strict';
-  const deny=/password|\bpwd\b|login|user\s*(?:id|name)|otp|one.?time|verification.?code|captcha|security.?code|\bcvv\b|\bcvc\b|card.?number|upi|payment|bank|account|ifsc|aadhaar|aadhar|uidai|pan.?number|passport.?number|ssn|confirm|retype|submit|search|transaction|declar|agree|consent|(?:^|\s)pin(?:\s|$)|पासवर्ड|कैप्चा|ओटीपी|खाता|आधार|पैन.?नंबर|भुगतान/i;
+  const deny=/password|\bpwd\b|login|user\s*(?:id|name)|otp|one.?time|verification.?code|captcha|security.?code|\bcvv\b|\bcvc\b|(?:credit|debit|payment).?card|card.?number|upi.?pin|payment|confirm|retype|submit|search|transaction|declar|agree|consent|(?:^|\s)pin(?:\s|$)|पासवर्ड|कैप्चा|ओटीपी|भुगतान/i;
   const specs=[
+    ['aadhaarNumber',/aadhaar|aadhar|uid.?number|आधार/i],['panNumber',/pan.?number|pan.?no|pan.?card|^pan$|पैन/i],['passportNumber',/passport.?number|passport.?no/i],
+    ['ifsc',/ifsc/i],['bankAccount',/bank.?account|account.?number|account.?no|खाता.?संख्या/i],['bankName',/bank.?name|name.?of.?bank/i],
+    ['enterpriseName',/enterprise.?name|name.?of.?enterprise|business.?name|company.?name|उद्यम.?का.?नाम/i],['organisationType',/organi[sz]ation.?type|type.?of.?organi[sz]ation|constitution.?of.?business/i],
+    ['gstin',/gstin|gst.?number|gst.?no/i],['udyamNumber',/udyam.?number|udyam.?registration.?number/i],['commencementDate',/commencement.?date|date.?of.?commencement|business.?start.?date/i],['annualIncome',/annual.?income|yearly.?income/i],['annualTurnover',/annual.?turnover|yearly.?turnover/i],['nicCode',/nic.?code|industry.?code/i],
+    ['dobDay',/(?:birth|dob).*(?:day)|(?:day).*(?:birth|dob)/i],['dobMonth',/(?:birth|dob).*(?:month)|(?:month).*(?:birth|dob)/i],['dobYear',/(?:birth|dob).*(?:year)|(?:year).*(?:birth|dob)/i],
+    ['maritalStatus',/marital.?status/i],['occupation',/occupation|profession/i],['houseNumber',/house.?number|house.?no|flat.?number/i],['street',/street|road.?name/i],['locality',/locality|village|area.?name/i],['postOffice',/post.?office/i],['tehsil',/tehsil|taluk|block.?name/i],['country',/country/i],
     ['fatherName',/father|पिता/i],['motherName',/mother|माता/i],
     ['dob',/date.?of.?birth|birth.?date|\bdob\b|जन्म.?तिथि|जन्म.?दिनांक/i],
     ['email',/e.?mail|ईमेल/i],['mobile',/mobile|phone|contact.?number|मोबाइल|फोन/i],
@@ -16,7 +22,7 @@ function avsarGoFormAgent(mode, payload) {
     ['board',/education.?board|exam.?board|university|बोर्ड|विश्वविद्यालय/i],['course',/course|discipline|पाठ्यक्रम/i],
     ['rollNumber',/roll.?n(?:o|umber)|रोल.?नंबर/i],['school',/school.?name|college.?name|institution.?name|विद्यालय.?नाम/i],
     ['firstName',/first.?name|given.?name|पहला.?नाम/i],['middleName',/middle.?name|मध्य.?नाम/i],['lastName',/last.?name|surname|family.?name|उपनाम/i],
-    ['fullName',/applicant.?name|candidate.?name|full.?name|name.?of.?(?:applicant|candidate)|your.?name|आवेदक.?का.?नाम|पूरा.?नाम|^name$|^नाम$/i]
+    ['fullName',/applicant.?name|candidate.?name|full.?name|name.?of.?(?:applicant|candidate|entrepreneur)|entrepreneur.?name|name.?as.?per.?aadhaar|your.?name|आवेदक.?का.?नाम|पूरा.?नाम|^name$|^नाम$/i]
   ];
   const docs=[document], blockedFrames=[];
   function frames(doc){for(const frame of doc.querySelectorAll('iframe,frame')){
@@ -37,13 +43,13 @@ function avsarGoFormAgent(mode, payload) {
       .filter(Boolean).join(' ').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/[_-]/g,' ').replace(/\s+/g,' ').trim().slice(0,300);
   }
   function secret(el){
-    if(el.tagName==='INPUT'&&!['text','email','tel','date','number',''].includes((el.type||'text').toLowerCase()))return true;
+    if(el.tagName==='INPUT'&&!['text','email','tel','date','number','radio',''].includes((el.type||'text').toLowerCase()))return true;
     const d=descriptor(el),withoutPostal=d.replace(/(?:postal|zip|pin)\s*code|pincode|पिन\s*कोड/ig,'postalcode');
     return !d||deny.test(withoutPostal);
   }
   function keyFor(el){
     if(!visible(el)||secret(el))return null;const d=descriptor(el);
-    if(/guardian|parent.?name|organisation|organization|company|nominee|spouse|अभिभावक|(?:exam|test|preferred).*(?:city|centre|center)|(?:school|college|university).*address/i.test(d))return null;
+    if(/guardian|parent.?name|nominee|spouse|अभिभावक|(?:exam|test|preferred).*(?:city|centre|center)|(?:school|college|university).*address/i.test(d))return null;
     if(/domicile|निवास.?राज्य/i.test(d))return 'domicile';
     // Generic "Name" applies only when the semantic label is exactly Name; never bank/college names.
     for(const [key,rule]of specs)if(rule.test(d))return key;
@@ -55,9 +61,12 @@ function avsarGoFormAgent(mode, payload) {
       const option=el.options[el.selectedIndex];
       return !option||option.disabled||el.value===''||/^(?:select|choose|please select|--|चुनें)/i.test(option.textContent.trim());
     }
+    if(el.type==='radio')return !all.some(r=>r.type==='radio'&&r.name===el.name&&r.form===el.form&&r.checked);
     return String(el.value||'').trim()==='';
   }
-  const all=docs.flatMap(doc=>Array.from(doc.querySelectorAll('input,textarea,select')));
+  const all=docs.flatMap(doc=>Array.from(doc.querySelectorAll('input,textarea,select,[role=combobox]')));
+  function radios(el){return all.filter(r=>r.type==='radio'&&r.name===el.name&&r.form===el.form&&r.ownerDocument===el.ownerDocument&&visible(r)&&!secret(r));}
+  const radioFirst=el=>el.type!=='radio'||radios(el)[0]===el;
   const flagElements=all.filter(visible);
   const flags={
     login:flagElements.some(el=>el.tagName==='INPUT'&&el.type==='password')||flagElements.some(el=>/(?:login|user\s*(?:name|id))/i.test(descriptor(el))),
@@ -66,12 +75,12 @@ function avsarGoFormAgent(mode, payload) {
     payment:flagElements.some(el=>/cvv|cvc|card.?number|upi|payment|भुगतान/i.test(descriptor(el))),
     files:flagElements.some(el=>el.type==='file'),crossOriginFrame:blockedFrames.length>0
   };
-  const candidates=flags.login||flags.payment?[]:all.map((el,i)=>({element:el,fieldId:'f'+i,key:keyFor(el)})).filter(m=>visible(m.element)&&!secret(m.element)&&blank(m.element)).slice(0,80);
+  const candidates=flags.login||flags.payment?[]:all.map((el,i)=>({element:el,fieldId:'f'+i,key:keyFor(el)})).filter(m=>visible(m.element)&&!secret(m.element)&&blank(m.element)&&radioFirst(m.element)).slice(0,100);
   const matches=candidates.filter(m=>m.key);
   const fields=[...new Set(matches.map(m=>m.key))];
   const page=location.origin+location.pathname;
-  const uploads=flags.login||flags.payment?[]:all.map((el,i)=>({element:el,fieldId:'f'+i})).filter(m=>m.element.type==='file'&&visible(m.element));
-  const metadata=m=>({fieldId:m.fieldId,key:m.key||'',label:descriptor(m.element),type:m.element.tagName==='SELECT'?'select':m.element.tagName==='TEXTAREA'?'textarea':m.element.type||'text',required:!!m.element.required,maxLength:m.element.maxLength,options:m.element.tagName==='SELECT'?Array.from(m.element.options).filter(o=>!o.disabled).slice(0,80).map(o=>o.textContent.slice(0,100)):[]});
+  const uploads=flags.login||flags.payment?[]:all.map((el,i)=>({element:el,fieldId:'f'+i})).filter(m=>m.element.type==='file'&&visible(m.element)&&!m.element.files?.length);
+  const metadata=m=>({fieldId:m.fieldId,key:m.key||'',label:descriptor(m.element),type:m.element.getAttribute('role')==='combobox'?'combobox':m.element.tagName==='SELECT'?'select':m.element.tagName==='TEXTAREA'?'textarea':m.element.type||'text',required:!!m.element.required,maxLength:m.element.maxLength,options:m.element.tagName==='SELECT'?Array.from(m.element.options).filter(o=>!o.disabled).slice(0,100).map(o=>o.textContent.slice(0,100)):m.element.type==='radio'?radios(m.element).map(r=>Array.from(r.labels||[]).map(l=>l.textContent).join(' ')||r.value):[]});
   const descriptors=candidates.map(metadata);
   const signature=page+':'+JSON.stringify(descriptors)+':'+uploads.map(m=>m.fieldId+'@'+descriptor(m.element)).join('|')+':'+JSON.stringify(flags);
   const unknownRequired=candidates.filter(m=>m.element.required&&!m.key).length;
@@ -90,23 +99,28 @@ function avsarGoFormAgent(mode, payload) {
     if(setter)setter.call(el,value);else el.value=value;
     el.dispatchEvent(new view.Event('input',{bubbles:true}));el.dispatchEvent(new view.Event('change',{bubbles:true}));
   }
-  const allowed=new Set(specs.map(s=>s[0]));
+  const allowed=new Set([...specs.map(s=>s[0]),...Object.keys(payload.meta||{}).filter(k=>/^extra_[a-f0-9]{16}$/.test(k)&&!deny.test(payload.meta[k]?.label||''))]);
   for(const m of candidates){
     const mapped=payload.mappings?.[m.fieldId],key=m.key||(allowed.has(mapped)?mapped:null),custom=Object.prototype.hasOwnProperty.call(payload.custom||{},m.fieldId),el=m.element;
     if((!key&&!custom)||(!custom&&!Object.prototype.hasOwnProperty.call(payload.fields,key))||!blank(el))continue;
     const name=key||'field:'+m.fieldId;let value=String(custom?payload.custom[m.fieldId]:payload.fields[key]||'').trim();
-    if(!value||value.length>(key==='address'||el.tagName==='TEXTAREA'?500:180)||/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(value)){skipped.push(name);continue;}
+    if(!value||value.length>(key==='address'||el.tagName==='TEXTAREA'?700:240)||/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(value)){skipped.push(name);continue;}
     if(el.maxLength>=0&&value.length>el.maxLength){skipped.push(name);continue;}
     let expected=value;
-    if(el.tagName==='SELECT'){
+    if(el.type==='radio'){
+      const norm=s=>String(s).trim().toLowerCase(),v=norm(value),aliases={male:['male','m','पुरुष'],female:['female','f','महिला'],other:['other','others','अन्य']};const variants=aliases[v]||[v];const target=radios(el).find(r=>variants.includes(norm(Array.from(r.labels||[]).map(l=>l.textContent).join(' ')))||norm(r.value)===v);if(!target){skipped.push(name);continue;}const view=el.ownerDocument.defaultView;Object.getOwnPropertyDescriptor(view.HTMLInputElement.prototype,'checked').set.call(target,true);target.dispatchEvent(new view.Event('input',{bubbles:true}));target.dispatchEvent(new view.Event('change',{bubbles:true}));if(target.checked)filled.push(name);else skipped.push(name);continue;
+    }else if(el.getAttribute('role')==='combobox'&&el.tagName!=='SELECT'){
+      const root=el.ownerDocument.getElementById(el.getAttribute('aria-controls')||el.getAttribute('aria-owns')||'');const choice=root&&Array.from(root.querySelectorAll('[role=option]')).find(o=>visible(o)&&o.getAttribute('aria-disabled')!=='true'&&o.textContent.trim().toLowerCase()===value.toLowerCase());if(!choice){skipped.push(name);continue;}choice.click();if(String(el.value||el.textContent).trim().toLowerCase()===value.toLowerCase())filled.push(name);else skipped.push(name);continue;
+    }else if(el.tagName==='SELECT'){
       const norm=s=>String(s).trim().toLowerCase();const aliases={male:['male','m','पुरुष'],female:['female','f','महिला'],other:['other','others','अन्य']};
-      const values=aliases[norm(value)]||[norm(value)];
-      const option=Array.from(el.options).find(o=>!o.disabled&&o.value!==''&&(values.includes(norm(o.textContent))||norm(o.value)===norm(value)));
+      let values=aliases[norm(value)]||[norm(value)];if(key==='dobMonth'){const months=['january','february','march','april','may','june','july','august','september','october','november','december'],n=Number(value);if(n>=1&&n<=12)values=[String(n),String(n).padStart(2,'0'),months[n-1],months[n-1].slice(0,3)];}if(key==='dobDay')values=[String(Number(value)),value];
+      const option=Array.from(el.options).find(o=>!o.disabled&&o.value!==''&&(values.includes(norm(o.textContent))||values.includes(norm(o.value))));
       if(!option){skipped.push(name);continue;}expected=option.value;
       const view=el.ownerDocument.defaultView;
       Object.getOwnPropertyDescriptor(view.HTMLSelectElement.prototype,'value').set.call(el,option.value);
       el.dispatchEvent(new view.Event('input',{bubbles:true}));el.dispatchEvent(new view.Event('change',{bubbles:true}));
     }else{
+      if(el.type==='number'&&['dobDay','dobMonth'].includes(key))value=String(Number(value));
       if(el.type==='date'){const d=value.match(/^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})$/);if(d)value=`${d[3]}-${d[2].padStart(2,'0')}-${d[1].padStart(2,'0')}`;}
       expected=value;setText(el,value);
     }

@@ -1,4 +1,4 @@
-name: Build AvsarGo V14 Android and admin
+name: Build AvsarGo V15 Android and admin
 on:
   workflow_dispatch:
   push:
@@ -33,9 +33,9 @@ jobs:
           node tests/form-agent.test.cjs
           node tests/ui-workflow.test.cjs
           node --test server/test/*.test.mjs
-          mkdir -p /tmp/avsargo-v14-tests
-          javac -d /tmp/avsargo-v14-tests app/src/main/java/com/avsargo/mobile/ProfileRules.java tests/ProfileRulesTest.java
-          java -cp /tmp/avsargo-v14-tests ProfileRulesTest
+          mkdir -p /tmp/avsargo-v15-tests
+          javac -d /tmp/avsargo-v15-tests app/src/main/java/com/avsargo/mobile/ProfileFields.java app/src/main/java/com/avsargo/mobile/ProfileRules.java tests/ProfileRulesTest.java
+          java -cp /tmp/avsargo-v15-tests ProfileRulesTest
       - name: Lint and compile Android APK
         run: gradle --no-daemon :app:lintDebug :app:assembleDebug
       - name: Verify APK package and signature
@@ -43,14 +43,14 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose app/build/outputs/apk/debug/app-debug.apk
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging app/build/outputs/apk/debug/app-debug.apk > apk-package.txt
           cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" apksigner.jar
-          cp app/build/outputs/apk/debug/app-debug.apk AvsarGo_AI_V14_Android_Test.apk
-          sha256sum AvsarGo_AI_V14_Android_Test.apk > AvsarGo_AI_V14_Android_Test.apk.sha256
+          cp app/build/outputs/apk/debug/app-debug.apk AvsarGo_AI_V15_Android_Test.apk
+          sha256sum AvsarGo_AI_V15_Android_Test.apk > AvsarGo_AI_V15_Android_Test.apk.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: AvsarGo-AI-V14-Android-Test-APK
+          name: AvsarGo-AI-V15-Android-Test-APK
           path: |
-            AvsarGo_AI_V14_Android_Test.apk
-            AvsarGo_AI_V14_Android_Test.apk.sha256
+            AvsarGo_AI_V15_Android_Test.apk
+            AvsarGo_AI_V15_Android_Test.apk.sha256
             apk-package.txt
             apksigner.jar
           if-no-files-found: error
@@ -76,6 +76,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: AvsarGo-V14-UI-Verification
+          name: AvsarGo-V15-UI-Verification
           path: visual-checks/*.png
           retention-days: 14

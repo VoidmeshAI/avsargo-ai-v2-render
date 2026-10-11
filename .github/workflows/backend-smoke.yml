@@ -2,7 +2,7 @@ name: Verify live AvsarGo admin
 on:
   workflow_dispatch:
   push:
-    branches: ['android/v14-documents-ai-autofill']
+    branches: ['android/v15-advanced-assistant']
     paths: ['server/**', 'scripts/live-backend-check.mjs', 'scripts/live-ai-check.mjs', '.github/workflows/backend-smoke.yml']
 permissions:
   contents: read

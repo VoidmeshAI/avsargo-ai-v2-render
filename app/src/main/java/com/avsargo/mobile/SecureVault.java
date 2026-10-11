@@ -64,13 +64,17 @@ public final class SecureVault {
         try (FileInputStream in = new FileInputStream(f)) { return unseal(readLimited(in, 18*1024*1024)); }
     }
     public synchronized void saveProfile(JSONObject profile) throws Exception {
-        // Profile contains only user-reviewed form fields, not login credentials or document identifiers.
+        // Profile contains only user-reviewed form fields, including document identifiers, never login/payment credentials.
         writeEncrypted("profile.sec", profile.toString().getBytes(StandardCharsets.UTF_8));
     }
     public synchronized JSONObject getProfile() throws Exception {
         byte[] data = readEncrypted("profile.sec");
         return data == null ? new JSONObject() : new JSONObject(new String(data, StandardCharsets.UTF_8));
     }
+    public synchronized void saveProfileMeta(JSONObject meta) throws Exception {writeEncrypted("profile-meta.sec",meta.toString().getBytes(StandardCharsets.UTF_8));}
+    public synchronized JSONObject profileMeta() throws Exception {byte[] raw=readEncrypted("profile-meta.sec");return raw==null?new JSONObject():new JSONObject(new String(raw,StandardCharsets.UTF_8));}
+    public synchronized void documentType(String id,String type) throws Exception {JSONArray docs=documents();for(int i=0;i<docs.length();i++)if(docs.getJSONObject(i).getString("id").equals(id))docs.getJSONObject(i).put("type",type);writeEncrypted("documents.sec",docs.toString().getBytes(StandardCharsets.UTF_8));}
+    public synchronized boolean automationAllowed() throws Exception {JSONObject settings=aiSettings();if(!settings.has("permissionsVersion")){JSONObject app=application();JSONArray analysed=app.optJSONArray("analysedIds");boolean previouslyUsed=analysed!=null&&analysed.length()>0||app.optInt("filledCount")>0;if(previouslyUsed){settings.put("permissionsVersion",1).put("automationConsent",true);saveAiSettings(settings);}}return settings.optBoolean("automationConsent");}
     public synchronized void setGeminiKey(String key) throws Exception {
         if (key.isEmpty()) { file("gemini.sec").delete(); return; }
         if (key.length() < 12 || key.length() > 320) throw new IllegalArgumentException("Invalid key length");
@@ -122,7 +126,7 @@ public final class SecureVault {
         writeEncrypted("application.sec",new JSONObject().put("status","none").toString().getBytes(StandardCharsets.UTF_8));
     }
     public synchronized void saveScan(String id,JSONObject scan) throws Exception {
-        documentMeta(id);if(scan.toString().length()>30000)throw new IOException("Scan is too large");
+        documentMeta(id);if(scan.toString().length()>800000)throw new IOException("Scan is too large");
         writeEncrypted("doc_"+id+".ocr.sec",scan.toString().getBytes(StandardCharsets.UTF_8));
     }
     public synchronized JSONObject scan(String id) throws Exception {
@@ -130,14 +134,14 @@ public final class SecureVault {
         return raw==null?new JSONObject():new JSONObject(new String(raw,StandardCharsets.UTF_8));
     }
     public synchronized void saveApplication(JSONObject value) throws Exception {
-        if(value.toString().length()>120000)throw new IOException("Application review is too large");
+        if(value.toString().length()>1000000)throw new IOException("Application review is too large");
         writeEncrypted("application.sec",value.toString().getBytes(StandardCharsets.UTF_8));
     }
     public synchronized JSONObject application() throws Exception {
         byte[] raw=readEncrypted("application.sec");return raw==null?new JSONObject():new JSONObject(new String(raw,StandardCharsets.UTF_8));
     }
     public synchronized void saveWorkspace(JSONObject data) throws Exception {
-        if(data.toString().length()>480000)throw new IllegalArgumentException("Chat storage limit reached");
+        if(data.toString().length()>2000000)throw new IllegalArgumentException("Chat storage limit reached");
         writeEncrypted("workspace.sec",data.toString().getBytes(StandardCharsets.UTF_8));
     }
     public synchronized JSONObject workspace() throws Exception {
@@ -157,7 +161,7 @@ public final class SecureVault {
         // Deletion must also work when the metadata index is corrupt.
         File[] files=ctx.getFilesDir().listFiles();
         if(files!=null)for(File f:files){
-            String n=f.getName();if(n.equals("application.sec")||n.equals("profile.sec")||n.equals("documents.sec")||n.equals("gemini.sec")||n.equals("workspace.sec")||n.equals("ai-settings.sec")||n.startsWith("backend-")||n.startsWith("doc_")||n.endsWith(".pending"))
+            String n=f.getName();if(n.equals("application.sec")||n.equals("profile.sec")||n.equals("profile-meta.sec")||n.equals("documents.sec")||n.equals("gemini.sec")||n.equals("workspace.sec")||n.equals("ai-settings.sec")||n.startsWith("backend-")||n.startsWith("doc_")||n.endsWith(".pending"))
                 if(f.exists()&&!f.delete())throw new IOException("Could not delete saved data");
         }
         KeyStore store=KeyStore.getInstance("AndroidKeyStore");store.load(null);if(store.containsAlias(KEY_ALIAS))store.deleteEntry(KEY_ALIAS);

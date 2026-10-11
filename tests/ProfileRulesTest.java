@@ -12,7 +12,7 @@ public final class ProfileRulesTest {
         check("Test Mother".equals(fields.get("motherName")),"Mother parse");
         check("21/01/2024".equals(fields.get("dob")),"DOB parse");
         check("9876543210".equals(fields.get("mobile")),"Mobile normalization");
-        check(!fields.containsKey("aadhaar"),"No ID extraction");
+        check(!fields.containsKey("aadhaarNumber"),"Invalid checksum withheld");
         check(!ProfileRules.fromOcr("Father's Name: Parent Only").containsKey("fullName"),"Father never becomes applicant name");
         check(!ProfileRules.fromOcr("Aadhaar: 987654321098").containsKey("mobile"),"ID fragment never becomes phone");
         check("21/01/2024".equals(ProfileRules.validate(Map.of("dob","2024-01-21")).get("dob")),"ISO review date");
@@ -24,6 +24,13 @@ public final class ProfileRulesTest {
         check(!ProfileRules.fromOcr("Issue date: 21/01/2024").containsKey("dob"),"Issue date not DOB");
         check(ProfileRules.validate(Map.of("school","Sample School","board","CBSE","passingYear","2020","percentage","85.50%","rollNumber","TEST-2020/12")).size()==5,"Reviewed educational data supported");
         invalid("passingYear","2999");invalid("passingYear","abcd");invalid("percentage","101");invalid("percentage","bad");invalid("rollNumber","<script>");
+        check(ProfileRules.KEYS.length==47,"Complete shared profile schema");
+        check(ProfileRules.validate(Map.of("panNumber","abcde1234f","enterpriseName","Sample Works","ifsc","sbin0001234","bankAccount","123456789012")).size()==4,"Reviewed business and identity facts supported");
+        check("21".equals(ProfileRules.valueFor(Map.of("dob","21/01/2000"),"dobDay")),"DOB day derived without guessing");
+        check("01".equals(ProfileRules.valueFor(Map.of("dob","21/01/2000"),"dobMonth")),"DOB month derived");
+        check(ProfileRules.validate(Map.of("extra_0123456789abcdef","CERT-01"),Map.of("extra_0123456789abcdef","Certificate number")).size()==1,"Additional labelled fact preserved");
+        check(ProfileRules.validate(Map.of("extra_0123456789abcdef","secret"),Map.of("extra_0123456789abcdef","Password")).isEmpty(),"Secret extra label rejected");
+        invalid("panNumber","INVALID");invalid("ifsc","BADCODE");invalid("aadhaarNumber","123456789012");invalid("commencementDate","31/02/2020");
         System.out.println("Profile/OCR rules: "+count+" checks passed");
     }
 }

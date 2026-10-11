@@ -19,7 +19,7 @@ function scenario(specs,{frames=[],path='/application'}={}){
  const elements=specs.map(s=>s.tagName==='SELECT'?new Select(s):s.tagName==='TEXTAREA'?new Textarea(s):new Input(s));
  const doc={title:'Application',location,defaultView:window,
   getElementById:id=>elements.find(el=>el.id===id)||null,
-  querySelectorAll:q=>q==='input,textarea,select'?elements:q==='iframe,frame'?frames:[],querySelector:()=>null};
+  querySelectorAll:q=>q.startsWith('input,textarea,select')?elements:q==='iframe,frame'?frames:[],querySelector:()=>null};
  for(const el of elements)el.ownerDocument=doc;
  const context=vm.createContext({document:doc,location,window,console});vm.runInContext(source,context);
  const run=(mode,payload)=>JSON.parse(JSON.stringify(context.avsarGoFormAgent(mode,payload)));
@@ -28,7 +28,7 @@ function scenario(specs,{frames=[],path='/application'}={}){
 }
 function test(name,fn){fn();count++;console.log('PASS',name);}
 test('Fills approved blank fields; preserves existing data and secret fields',()=>{
- const s=scenario([{name:'fullName',label:'Full name'},{name:'fatherName',label:"Father's name"},{name:'email',value:'existing@example.com'},{name:'mobile',label:'Mobile number'},{name:'otp',secret:true},{name:'captcha',secret:true},{name:'aadhaarNumber',secret:true},{name:'bankAccount',secret:true}]);
+ const s=scenario([{name:'fullName',label:'Full name'},{name:'fatherName',label:"Father's name"},{name:'email',value:'existing@example.com'},{name:'mobile',label:'Mobile number'},{name:'otp',secret:true},{name:'captcha',secret:true},{name:'aadhaarNumber'},{name:'bankAccount'}]);
  const result=s.fill({fullName:'Test Applicant',fatherName:'Parent',email:'overwrite@example.com',mobile:'9876543210',otp:'wrong',captcha:'wrong',aadhaar:'wrong'});
  assert.deepEqual(result.filled,['fullName','fatherName','mobile']);assert.equal(s.elements[2].value,'existing@example.com');assert.equal(result.neverSubmitted,true);
 });
@@ -47,7 +47,7 @@ test('Disabled, readonly and hidden fields are excluded',()=>{const s=scenario([
 test('Hindi labels map correctly',()=>{const s=scenario([{id:'applicant',label:'आवेदक का नाम'},{id:'father',label:'पिता का नाम'},{id:'birth',label:'जन्म तिथि'}]);assert.deepEqual(s.scan().fields,['fullName','fatherName','dob']);});
 test('Length constraint skips rather than truncating an approved name',()=>{const s=scenario([{name:'fullName',label:'Full name',maxLength:4}]);assert.deepEqual(s.fill({fullName:'Test Applicant'}).skipped,['fullName']);assert.equal(s.elements[0].value,'');});
 test('Input/change events are emitted and no click/submit is attempted',()=>{const s=scenario([{name:'email'}]);s.fill({email:'test@example.com'});assert.deepEqual(s.elements[0].events,['input','change']);});
-test('Unsupported required details are flagged',()=>{const s=scenario([{name:'occupation',required:true},{name:'fullName',label:'Full name'}]);assert.equal(s.scan().unknownRequired,1);});
+test('Unsupported required details are flagged',()=>{const s=scenario([{name:'unmappedRequired',required:true},{name:'fullName',label:'Full name'}]);assert.equal(s.scan().unknownRequired,1);});
 test('Same-origin iframe fields are scanned; cross-origin frame is flagged',()=>{
  const inside=scenario([{name:'city'}]);const frame={contentDocument:inside.doc};
  const outer=scenario([],{frames:[frame,{contentDocument:null}]});frame.ownerDocument=outer.doc;frame.shown=true;frame.getBoundingClientRect=()=>({width:150,height:150});inside.window.parent=outer.window;inside.window.frameElement=frame;
@@ -56,8 +56,12 @@ test('Same-origin iframe fields are scanned; cross-origin frame is flagged',()=>
 test('AI receives blank field descriptors and options, never existing website values',()=>{const s=scenario([{id:'person_area',label:'Administrative area',required:true},{id:'old',label:'Other detail',value:'PRIVATE VALUE'},{id:'password',type:'password',secret:true,shown:false}]);const scan=s.scan();assert.equal(scan.candidates.length,1);assert.equal(scan.candidates[0].label,'person area Administrative area');assert.ok(!JSON.stringify(scan).includes('PRIVATE VALUE'));});
 test('Reviewed AI mapping fills an unknown label with a local profile value',()=>{const s=scenario([{id:'area',label:'Municipal division',required:true}]),scan=s.scan();assert.deepEqual(scan.fields,[]);const r=s.run('fill',{signature:scan.signature,fields:{district:'Sample District'},mappings:{f0:'district'}});assert.deepEqual(r.filled,['district']);assert.equal(s.elements[0].value,'Sample District');});
 test('AI mappings cannot introduce secret keys or target protected controls',()=>{const s=scenario([{name:'otp',secret:true},{id:'unknown',label:'Unmatched detail'}]),scan=s.scan();s.run('fill',{signature:scan.signature,fields:{password:'secret',fullName:'Sample'},mappings:{f0:'fullName',f1:'password'}});assert.equal(s.elements[1].value,'');});
-test('Missing-details popup values fill only the specific reviewed blank field',()=>{const s=scenario([{name:'occupation',required:true},{name:'city',value:'Already saved'}]),scan=s.scan();const r=s.run('fill',{signature:scan.signature,fields:{},custom:{f0:'Student',f1:'Overwrite'}});assert.deepEqual(r.filled,['field:f0']);assert.equal(s.elements[1].value,'Already saved');});
+test('Missing-details popup values fill only the specific reviewed blank field',()=>{const s=scenario([{name:'unmappedRequired',required:true},{name:'city',value:'Already saved'}]),scan=s.scan();const r=s.run('fill',{signature:scan.signature,fields:{},custom:{f0:'Student',f1:'Overwrite'}});assert.deepEqual(r.filled,['field:f0']);assert.equal(s.elements[1].value,'Already saved');});
 test('Changed select options invalidate previous approval',()=>{const s=scenario([{tagName:'SELECT',name:'state',options:[{value:'',textContent:'Select state'},{value:'DL',textContent:'Delhi'}]}]),scan=s.scan();s.elements[0].options[1].textContent='Different state';assert.equal(s.run('fill',{signature:scan.signature,fields:{state:'Delhi'}}).error,'PAGE_CHANGED');});
 test('Declaration and confirmation controls never appear as AI candidates',()=>{const s=scenario([{name:'emailConfirmation',secret:true},{name:'declarationName',secret:true},{name:'agreeName',secret:true}]);assert.deepEqual(s.scan().candidates,[]);});
 test('Explicit file upload opens the selected input only and never submits',()=>{const s=scenario([{type:'file',name:'certificate'},{type:'submit',name:'final_submit',secret:true}]),scan=s.scan();let clicks=0;s.elements[0].click=()=>clicks++;assert.equal(scan.uploads.length,1);assert.equal(s.run('upload',{signature:scan.signature,fieldId:'f0'}).neverSubmitted,true);assert.equal(clicks,1);assert.equal(s.run('upload',{signature:scan.signature,fieldId:'f1'}).ok,false);});
+
+test('Approved government IDs and business facts map without conflating enterprise and applicant names',()=>{const s=scenario([{name:'aadhaarNumber',label:'Aadhaar number'},{name:'panNumber',label:'PAN number'},{name:'entrepreneur',label:'Name of entrepreneur'},{name:'enterprise',label:'Name of enterprise'},{name:'ifsc',label:'IFSC code'}]);assert.deepEqual(s.fill({aadhaarNumber:'234567890123',panNumber:'ABCDE1234F',fullName:'Sample Applicant',enterpriseName:'Sample Works',ifsc:'SBIN0001234'}).filled,['aadhaarNumber','panNumber','fullName','enterpriseName','ifsc']);});
+test('Separated DOB day/month/year select fields use exact month labels',()=>{const s=scenario([{name:'dob_day',type:'number'},{name:'dob_month',tagName:'SELECT',options:[{value:'',textContent:'Month'},{value:'jan',textContent:'January'}]},{name:'dob_year',type:'number'}]);const r=s.fill({dobDay:'21',dobMonth:'01',dobYear:'2000'});assert.deepEqual(r.filled,['dobDay','dobMonth','dobYear']);assert.equal(s.elements[1].value,'jan');});
+test('Custom printed facts require approved metadata labels and cannot introduce secrets',()=>{const key='extra_0123456789abcdef',s=scenario([{name:'cert',label:'Document certificate number'}]),scan=s.scan();assert.equal(s.run('fill',{signature:scan.signature,fields:{[key]:'CERT-01'},mappings:{f0:key},meta:{[key]:{label:'Certificate number'}}}).filled.length,1);});
 console.log(`Form agent: ${count} checks passed`);

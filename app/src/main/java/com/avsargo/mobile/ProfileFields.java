@@ -1,0 +1,7 @@
+package com.avsargo.mobile;
+// Generated from server/profile-fields.json.
+public final class ProfileFields {
+ public static final String[] KEYS={"fullName","firstName","middleName","lastName","fatherName","motherName","dob","gender","nationality","maritalStatus","aadhaarNumber","panNumber","passportNumber","occupation","mobile","email","address","houseNumber","street","locality","postOffice","tehsil","state","city","district","pincode","country","qualification","board","school","passingYear","percentage","course","rollNumber","category","domicile","enterpriseName","organisationType","gstin","udyamNumber","commencementDate","annualIncome","annualTurnover","nicCode","bankName","bankAccount","ifsc"};
+ public static final String[] LABELS={"Full name","First name","Middle name","Last name","Father's name","Mother's name","Date of birth","Gender","Nationality","Marital status","Aadhaar number","PAN number","Passport number","Occupation","Mobile number","Email","Address","House / flat number","Street / road","Locality / village","Post office","Tehsil / block","State","City","District","Postal PIN code","Country","Highest qualification","Board / university","School / college","Passing year","Percentage","Course / discipline","Education roll number","Reservation category","Domicile state","Enterprise name","Organisation type","GSTIN","Udyam registration number","Business commencement date","Annual income","Annual turnover","NIC activity code","Bank name","Bank account number","IFSC"};
+ private ProfileFields(){}
+}

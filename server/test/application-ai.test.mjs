@@ -24,7 +24,7 @@ test('selected OCR text uses structured AI and returns source-backed proposals, 
 });
 test('OpenAI structured analysis uses the configured server key and store false',async()=>{
  const f=await fixture({candidates:[candidate()]},'openai');assert.equal((await f.req('/api/documents/analyse',{consent:true,documents:[scan]})).status,200);
- const p=JSON.parse(f.calls[0].options.body);assert.equal(p.response_format.type,'json_schema');assert.equal(p.response_format.json_schema.strict,true);assert.equal(p.store,false);assert.equal(p.max_completion_tokens,4096);
+ const p=JSON.parse(f.calls[0].options.body);assert.equal(p.response_format.type,'json_schema');assert.equal(p.response_format.json_schema.strict,true);assert.equal(p.store,false);assert.equal(p.max_completion_tokens,8192);
 });
 test('hallucinated values, missing evidence, identity numbers and invalid dates never become proposals',()=>{
  const input=documentsInput({consent:true,documents:[scan]}),r=parseDocumentResult(JSON.stringify({candidates:[candidate(),candidate({value:'Invented Person'}),candidate({documentId:'other'}),candidate({key:'aadhaar',value:'123456789012'}),candidate({key:'dob',value:'31/02/2000',evidence:'31/02/2000'}),candidate({evidence:'Invented evidence'}),candidate({key:'firstName',value:'Sa',evidence:'Name: Sample Applicant',confidence:'low'})]}),input);
@@ -36,7 +36,7 @@ test('different documents keep conflicting values for the user to choose',()=>{
  assert.equal(r.candidates.length,2);assert.equal(r.requiresReview,true);
 });
 test('oversized, empty or duplicate scans stop before contacting the provider',async()=>{
- const f=await fixture();for(const documents of [[{...scan,text:'x'.repeat(12001)}],[{...scan,text:''}],[scan,scan],Array.from({length:4},(_,i)=>({id:'doc-'+i,text:'x'.repeat(12000)}))])assert.equal((await f.req('/api/documents/analyse',{consent:true,documents})).status,400);
+ const f=await fixture();for(const documents of [[{...scan,text:'x'.repeat(48001)}],[{...scan,text:''}],[scan,scan],Array.from({length:16},(_,i)=>({id:'doc-'+i,text:'x'.repeat(12000)}))])assert.equal((await f.req('/api/documents/analyse',{consent:true,documents})).status,400);
  assert.equal(f.calls.length,0);
 });
 test('incomplete structured results refund reserved allowance and can be retried',async()=>{
@@ -49,12 +49,12 @@ test('form mapping sends labels and key names only; conflicting or weak suggesti
  const input=mappingInput({consent:true,fields:[{fieldId:'f1',label:'Place',type:'text'}]});assert.deepEqual(parseMappingResult(JSON.stringify({mappings:[{fieldId:'f1',key:'city',confidence:'high'},{fieldId:'f1',key:'state',confidence:'high'}]}),input).mappings,[]);
 });
 test('protected or unsupported website controls cannot be sent to AI Assist',async()=>{
- const f=await fixture();for(const label of ['OTP number','Bank account','Password','Aadhaar number','Legal declaration','PAN number','Email confirmation'])assert.equal((await f.req('/api/forms/map',{consent:true,fields:[{fieldId:'f1',label,type:'text'}]})).status,400);
+ const f=await fixture();for(const label of ['OTP number','Password','Legal declaration','Email confirmation'])assert.equal((await f.req('/api/forms/map',{consent:true,fields:[{fieldId:'f1',label,type:'text'}]})).status,400);
  assert.equal((await f.req('/api/forms/map',{consent:true,fields:[{fieldId:'f1',label:'Accept',type:'checkbox'}]})).status,400);assert.equal(f.calls.length,0);
 });
 test('ordinary chat has grounded workflow facts but no document text or profile values',async()=>{
  const f=await fixture('Use Upload documents, then review and autofill');const r=await f.req('/api/chat',{consent:true,messages:[{role:'user',text:'PAN form fill karo'}],workflow:{service:'pan',documentCount:2,reviewedKeys:['fullName','password'],documentAnalysis:'reviewed',filledCount:3,profile:{fullName:'PRIVATE APPLICANT'},text:'PRIVATE OCR'}});
- assert.equal(r.status,200);const p=JSON.parse(f.calls[0].options.body),prompt=p.systemInstruction.parts[0].text;assert.ok(prompt.includes('can import PDF/JPG/PNG'));assert.ok(prompt.includes('"filledCount":3'));assert.ok(!prompt.includes('PRIVATE'));assert.ok(!prompt.includes('Never claim to have read uploaded documents'));
+ assert.equal(r.status,200);const p=JSON.parse(f.calls[0].options.body),prompt=p.systemInstruction.parts[0].text;assert.ok(prompt.includes('read all scanned pages'));assert.ok(prompt.includes('"filledCount":3'));assert.ok(!prompt.includes('PRIVATE'));assert.ok(!prompt.includes('Never claim to have read uploaded documents'));
  assert.deepEqual(workflowContext({documentCount:99,reviewedKeys:['fullName','password']} ).reviewedKeys,['fullName']);
 });
 test('document analysis and chat share per-device concurrency and quota protection',async()=>{

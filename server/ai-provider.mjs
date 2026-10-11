@@ -14,13 +14,15 @@ export function transportError(cause){
 export function createProviderClient({fetchImpl=fetch,report=()=>{}}={}){
   async function request(url,options={},signal=AbortSignal.timeout(35000)){
     const host=new URL(url).hostname;let response;
+    for(let attempt=0;attempt<3;attempt++){
     try{response=await fetchImpl(url,{...options,redirect:'error',signal});}
-    catch(cause){const e=transportError(cause);report({event:'provider_failure',host,code:e.code});throw e;}
+    catch(cause){const e=transportError(cause);if(attempt<2&&!signal.aborted&&['PROVIDER_NETWORK','PROVIDER_DNS'].includes(e.code)){report({event:'provider_retry',host,code:e.code,attempt:attempt+1});await new Promise(r=>setTimeout(r,250*(attempt+1)));continue;}report({event:'provider_failure',host,code:e.code});throw e;}
     let data;try{data=await response.json();}catch(cause){
       if(signal.aborted)throw transportError(cause);
       if(response.ok)throw error(502,'PROVIDER_RESPONSE','The AI provider returned an unreadable response. Try again.');
     }
     if(!response.ok){
+      if(response.status>=500&&attempt<2&&!signal.aborted){report({event:'provider_retry',host,httpStatus:response.status,attempt:attempt+1});await new Promise(r=>setTimeout(r,250*(attempt+1)));continue;}
       const reason=(data?.error?.details||[]).map(d=>d.reason).find(r=>['API_KEY_INVALID','API_KEY_EXPIRED','API_KEY_SERVICE_BLOCKED','API_KEY_HTTP_REFERRER_BLOCKED','API_KEY_IP_ADDRESS_BLOCKED'].includes(r));
       let e;
       if(reason||response.status===401||response.status===403)e=error(502,'PROVIDER_KEY','API key rejected or restricted. Check the key and its server/API permissions, save it, then test again.',response.status);
@@ -32,6 +34,7 @@ export function createProviderClient({fetchImpl=fetch,report=()=>{}}={}){
       report({event:'provider_failure',host,code:e.code,httpStatus:response.status});throw e;
     }
     return data;
+    }
   }
   return {request};
 }
@@ -68,22 +71,22 @@ export function geminiGeneration(model,maxOutputTokens){
   else if(/^gemini-2\.5-flash/.test(model))generation.thinkingConfig={thinkingBudget:0};
   return generation;
 }
-export async function generateReply(client,{provider,model,key,prompt,messages,maxOutputTokens,schema},signal){
+export async function generateReply(client,{provider,model,key,prompt,messages,maxOutputTokens,schema,attachments=[]},signal){
   let answer;
   if(provider==='gemini'){
     const generationConfig=geminiGeneration(model,maxOutputTokens);
     if(schema)Object.assign(generationConfig,{responseMimeType:'application/json',responseJsonSchema:schema});
-    const data=await client.request('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':key},body:JSON.stringify({systemInstruction:{parts:[{text:prompt}]},contents:messages.map(m=>({role:m.role==='user'?'user':'model',parts:[{text:m.text}]})),generationConfig})},signal);
+    const data=await client.request('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':key},body:JSON.stringify({systemInstruction:{parts:[{text:prompt}]},contents:messages.map(m=>({role:m.role==='user'?'user':'model',parts:[{text:m.text},...(m.role==='user'?attachments.flatMap(a=>[{text:'Document '+a.documentId+' · page '+a.page},{inlineData:{mimeType:a.mime,data:a.data}}]):[])]})),generationConfig})},signal);
     answer=(data.candidates?.[0]?.content?.parts||[]).filter(p=>!p.thought).map(p=>p.text||'').join('\n');
   }else{
-    const payload={model,messages:[{role:'system',content:prompt},...messages.map(m=>({role:m.role,content:m.text}))],max_completion_tokens:maxOutputTokens,store:false};
+    const payload={model,messages:[{role:'system',content:prompt},...messages.map(m=>({role:m.role,content:attachments.length&&m.role==='user'?[{type:'text',text:m.text},...attachments.map(a=>({type:'image_url',image_url:{url:'data:'+a.mime+';base64,'+a.data,detail:'high'}}))]:m.text}))],max_completion_tokens:maxOutputTokens,store:false};
     if(schema)payload.response_format={type:'json_schema',json_schema:{name:'avsargo_application',strict:true,schema}};
     if(/^gpt-[5-9]/.test(model))payload.reasoning_effort='low';
     const data=await client.request('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+key},body:JSON.stringify(payload)},signal);
     answer=data.choices?.[0]?.message?.content;
   }
   if(typeof answer!=='string'||!answer.trim())throw error(502,'EMPTY_AI_REPLY','The AI did not return a text reply. Test connection to select a working model.');
-  return answer.slice(0,schema?40000:15000);
+  return answer.slice(0,schema?120000:15000);
 }
 export async function testSavedProvider(client,{provider,key,prompt},clock=Date.now){
   const started=clock(),overall=AbortSignal.timeout(42000);
@@ -97,4 +100,19 @@ export async function testSavedProvider(client,{provider,key,prompt},clock=Date.
     }catch(e){last=e;if(overall.aborted||!['MODEL_UNAVAILABLE','EMPTY_AI_REPLY','PROVIDER_TIMEOUT'].includes(e.code))throw e;}
   }
   throw last;
+}
+
+// Public official-link research receives no document/profile values.
+export async function generateSearchReply(client,{provider,model,key,query,prompt,maxOutputTokens=3000},signal){
+ let text='',sources=[],suggestions='';
+ if(provider==='gemini'){
+  const data=await client.request('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',headers:{'content-type':'application/json','x-goog-api-key':key},body:JSON.stringify({systemInstruction:{parts:[{text:prompt}]},contents:[{role:'user',parts:[{text:query}]}],tools:[{googleSearch:{}}],generationConfig:geminiGeneration(model,maxOutputTokens)})},signal);
+  const candidate=data.candidates?.[0];text=(candidate?.content?.parts||[]).filter(p=>!p.thought).map(p=>p.text||'').join('\n');
+  sources=(candidate?.groundingMetadata?.groundingChunks||[]).filter(c=>c.web).map((c,i)=>({url:c.web.uri,title:c.web.title||'Source',index:i+1}));suggestions=candidate?.groundingMetadata?.searchEntryPoint?.renderedContent||'';
+ }else{
+  const data=await client.request('https://api.openai.com/v1/responses',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+key},body:JSON.stringify({model,instructions:prompt,input:query,tools:[{type:'web_search',filters:{allowed_domains:['gov.in','nic.in','ibps.in','nta.ac.in','proteantech.in','utiitsl.com']}}],include:['web_search_call.action.sources'],max_output_tokens:maxOutputTokens,store:false})},signal);
+  for(const item of data.output||[])for(const part of item.content||[])if(part.type==='output_text'){text+=part.text||'';sources.push(...(part.annotations||[]).filter(a=>a.type==='url_citation').map(a=>({url:a.url,title:a.title||'Source'})));}
+ }
+ if(!text.trim())throw new ProviderError(502,'EMPTY_SEARCH','Official results could not be retrieved. Try again.');
+ return {text:text.slice(0,18000),sources:sources.slice(0,25),suggestions:suggestions.slice(0,40000)};
 }

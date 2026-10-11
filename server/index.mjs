@@ -13,13 +13,13 @@ const app=await createApp({store,origin,setupHash:process.env.ADMIN_SETUP_HASH,s
 const server=http.createServer(async(req,res)=>{
   try{
     const pathname=new URL(req.url,origin).pathname;
-    let size=0,parts=[];for await(const chunk of req){size+=chunk.length;if(size>262144){res.writeHead(413);res.end('Request too large');return;}parts.push(chunk);}
+    let size=0,parts=[];for await(const chunk of req){size+=chunk.length;if(size>5000000){res.writeHead(413);res.end('Request too large');return;}parts.push(chunk);}
     const headers=new Headers();for(const [k,v]of Object.entries(req.headers))if(v!==undefined)headers.set(k,Array.isArray(v)?v.join(','):v);
     const options={method:req.method,headers};if(!['GET','HEAD'].includes(req.method))options.body=Buffer.concat(parts);
     const response=await app.fetch(new Request(origin+pathname,options));
     res.writeHead(response.status,Object.fromEntries(response.headers));res.end(Buffer.from(await response.arrayBuffer()));
   }catch{res.writeHead(500,{'content-type':'application/json'});res.end('{"error":"Service temporarily unavailable"}');}
 });
-server.requestTimeout=45000;server.headersTimeout=15000;
+server.requestTimeout=180000;server.headersTimeout=15000;
 server.listen(Number(process.env.PORT||3000),'0.0.0.0',()=>{console.log('AvsarGo control service ready');app.migrateAI().catch(()=>{});});
 for(const event of ['SIGINT','SIGTERM'])process.on(event,()=>server.close(async()=>{await app.close();await store.close();process.exit(0);}));
