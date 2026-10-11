@@ -60,7 +60,7 @@ for(const engine of ['chromium','webkit']){
    await page.reload();await setupReady(page);await createOwner(page);
    assert.equal(await page.evaluate(key=>sessionStorage.getItem(key),storageKey),null);
    assert.equal(f.app.snapshot().admin.username,'qa_owner');assert.deepEqual(f.requests.filter(r=>r.setup).map(r=>r.setup),[setupToken]);
-   await page.locator('#logout').click();await page.waitForFunction(()=>document.getElementById('auth-form').dataset.setup==='false');
+   await page.locator('[data-tab="security"]').click();await page.locator('#account-logout').click();await page.waitForFunction(()=>document.getElementById('auth-form').dataset.setup==='false');
    assert.equal(await page.locator('#sign-in').isEnabled(),true);await signIn(page);
   });
   await check(browser,engine,'ordinary admin link accepts a corrected private code and survives refresh',async({f,page})=>{

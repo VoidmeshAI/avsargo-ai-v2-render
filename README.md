@@ -12,6 +12,8 @@ https://avsargo-ai-admin-production.up.railway.app/admin
 
 Use the private setup link delivered separately to create an owner username and a password of at least 12 characters. The setup token is absent from this repository and APK. After setup, use Settings → Open admin panel on Android to sign in.
 
+The private setup link survives refresh in the same browser tab. If you opened the regular admin address before creating an account, paste the code from your private guide into **Private setup code**. Pending setup codes are cleared after account creation or when an owner already exists. The regular address then shows sign-in.
+
 - AI: Gemini or OpenAI keys, model discovery, response instructions and per-device/global quotas.
 - Payments: Razorpay test/live keys and webhook secrets, plan price/duration and a feature switch. Server-created orders, callback signature checks, captured-payment verification and idempotent webhooks protect entitlements. Government portal fees are separate.
 - App: name, welcome text, default theme, accent, support, announcements, maintenance and official portal links.
