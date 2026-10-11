@@ -132,11 +132,15 @@ public final class SecureVault {
     public synchronized JSONObject aiSettings() throws Exception {
         byte[] bytes=readEncrypted("ai-settings.sec");return bytes==null?new JSONObject():new JSONObject(new String(bytes,StandardCharsets.UTF_8));
     }
+    public synchronized void saveBackendState(JSONObject value) throws Exception {writeEncrypted("backend-state.sec",value.toString().getBytes(StandardCharsets.UTF_8));}
+    public synchronized JSONObject backendState() throws Exception {byte[] value=readEncrypted("backend-state.sec");return value==null?new JSONObject():new JSONObject(new String(value,StandardCharsets.UTF_8));}
+    public synchronized void setDeviceToken(String value) throws Exception {writeEncrypted("backend-session.sec",value.getBytes(StandardCharsets.UTF_8));}
+    public synchronized String deviceToken() throws Exception {byte[] value=readEncrypted("backend-session.sec");return value==null?"":new String(value,StandardCharsets.UTF_8);}
     public synchronized void eraseAll() throws Exception {
         // Deletion must also work when the metadata index is corrupt.
         File[] files=ctx.getFilesDir().listFiles();
         if(files!=null)for(File f:files){
-            String n=f.getName();if(n.equals("profile.sec")||n.equals("documents.sec")||n.equals("gemini.sec")||n.equals("workspace.sec")||n.equals("ai-settings.sec")||n.startsWith("doc_")||n.endsWith(".pending"))
+            String n=f.getName();if(n.equals("profile.sec")||n.equals("documents.sec")||n.equals("gemini.sec")||n.equals("workspace.sec")||n.equals("ai-settings.sec")||n.startsWith("backend-")||n.startsWith("doc_")||n.endsWith(".pending"))
                 if(f.exists()&&!f.delete())throw new IOException("Could not delete saved data");
         }
         KeyStore store=KeyStore.getInstance("AndroidKeyStore");store.load(null);if(store.containsAlias(KEY_ALIAS))store.deleteEntry(KEY_ALIAS);

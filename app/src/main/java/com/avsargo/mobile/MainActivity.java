@@ -33,6 +33,9 @@ public final class MainActivity extends Activity {
     private TextView browserTitle,browserStatus;
     private ProgressBar browserProgress;
     private SecureVault vault;
+    private BackendClient backend;
+    private volatile boolean configRefreshing=false;
+    private long lastConfigRefresh=0;
     private String helperJs="",lastPromptSignature="",currentPortalUrl="",autoOrigin="";
     private JSONObject cachedProfile=new JSONObject();
     private final Handler handler=new Handler(Looper.getMainLooper());
@@ -47,11 +50,11 @@ public final class MainActivity extends Activity {
     private final Runnable periodicScan=new Runnable(){public void run(){if(active){scanAndOffer(false);handler.postDelayed(this,2400);}}};
 
     @Override public void onCreate(Bundle state){
-        super.onCreate(state);
+        setTheme(android.R.style.Theme_Material_NoActionBar);super.onCreate(state);
         if(android.os.Build.VERSION.SDK_INT>=30)getWindow().setDecorFitsSystemWindows(false);
         if(android.os.Build.VERSION.SDK_INT>=33)getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,this::onBackPressed);
-        getWindow().setStatusBarColor(Color.rgb(18,26,24));getWindow().setNavigationBarColor(Color.rgb(18,26,24));
-        vault=new SecureVault(this);
+        getWindow().setStatusBarColor(Color.rgb(32,33,35));getWindow().setNavigationBarColor(Color.rgb(32,33,35));
+        vault=new SecureVault(this);backend=new BackendClient(vault);
         File[] cache=getCacheDir().listFiles();if(cache!=null)for(File f:cache)if(f.getName().startsWith("ocr_")&&f.getName().endsWith(".pdf"))f.delete();
         try(InputStream in=getAssets().open("app/form-agent.js")){helperJs=new String(SecureVault.readLimited(in,64000),StandardCharsets.UTF_8);}catch(Exception ignored){}
         FrameLayout shell=new FrameLayout(this);
@@ -60,7 +63,7 @@ public final class MainActivity extends Activity {
             if(android.os.Build.VERSION.SDK_INT>=30){android.graphics.Insets safe=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout()|WindowInsets.Type.ime());left=safe.left;top=safe.top;right=safe.right;bottom=safe.bottom;}
             v.setPadding(left,top,right,bottom);return insets;
         });
-        appWeb=new WebView(this);appWeb.setBackgroundColor(Color.rgb(250,251,249));
+        appWeb=new WebView(this);appWeb.setBackgroundColor(Color.rgb(32,33,35));
         configure(appWeb,false);appWeb.getSettings().setBlockNetworkLoads(true);appWeb.getSettings().setAllowContentAccess(false);
         appWeb.addJavascriptInterface(new PrivateBridge(),"AvsarGoNative");
         appWeb.setWebViewClient(new WebViewClient(){
@@ -87,17 +90,17 @@ public final class MainActivity extends Activity {
     }
     private static boolean isAppAsset(String url){return url.startsWith(ASSETS+"app/");}
     private int dp(int size){return Math.round(size*getResources().getDisplayMetrics().density);}
-    private Button toolbarButton(String text){Button b=new Button(this);b.setText(text);b.setAllCaps(false);b.setTextSize(12);b.setTextColor(Color.WHITE);b.setMinWidth(0);b.setMinimumWidth(0);b.setPadding(dp(8),0,dp(8),0);b.setBackgroundTintList(ColorStateList.valueOf(Color.rgb(24,67,60)));return b;}
+    private Button toolbarButton(String text){Button b=new Button(this);b.setText(text);b.setAllCaps(false);b.setTextSize(12);b.setTextColor(Color.WHITE);b.setMinWidth(0);b.setMinimumWidth(0);b.setPadding(dp(8),0,dp(8),0);b.setBackgroundTintList(ColorStateList.valueOf(Color.rgb(48,49,53)));return b;}
     private void buildBrowser(){
-        browserLayout=new LinearLayout(this);browserLayout.setOrientation(LinearLayout.VERTICAL);browserLayout.setBackgroundColor(Color.WHITE);
-        LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);head.setPadding(dp(4),dp(4),dp(4),dp(4));head.setBackgroundColor(Color.rgb(13,32,31));
+        browserLayout=new LinearLayout(this);browserLayout.setOrientation(LinearLayout.VERTICAL);browserLayout.setBackgroundColor(Color.rgb(32,33,35));
+        LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);head.setPadding(dp(4),dp(4),dp(4),dp(4));head.setBackgroundColor(Color.rgb(32,33,35));
         Button back=toolbarButton("‹");head.addView(back,new LinearLayout.LayoutParams(dp(42),dp(44)));back.setOnClickListener(v->{if(siteWeb.canGoBack())siteWeb.goBack();else showChat();});
         browserTitle=new TextView(this);browserTitle.setTextSize(11);browserTitle.setTextColor(Color.WHITE);browserTitle.setMaxLines(2);head.addView(browserTitle,new LinearLayout.LayoutParams(0,-2,1));
         Button assist=toolbarButton("Assist");head.addView(assist,new LinearLayout.LayoutParams(-2,dp(44)));assist.setOnClickListener(v->scanAndOffer(true));
         Button close=toolbarButton("✕");head.addView(close,new LinearLayout.LayoutParams(dp(42),dp(44)));close.setOnClickListener(v->showChat());
         browserLayout.addView(head,new LinearLayout.LayoutParams(-1,-2));
         browserProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);browserProgress.setMax(100);browserLayout.addView(browserProgress,new LinearLayout.LayoutParams(-1,dp(3)));
-        browserStatus=new TextView(this);browserStatus.setTextSize(11);browserStatus.setTextColor(Color.rgb(30,90,68));browserStatus.setPadding(dp(12),dp(8),dp(12),dp(8));browserLayout.addView(browserStatus,new LinearLayout.LayoutParams(-1,-2));
+        browserStatus=new TextView(this);browserStatus.setTextSize(11);browserStatus.setTextColor(Color.rgb(188,234,213));browserStatus.setPadding(dp(12),dp(8),dp(12),dp(8));browserLayout.addView(browserStatus,new LinearLayout.LayoutParams(-1,-2));
         siteWeb=new WebView(this);configure(siteWeb,true);
         CookieManager.getInstance().setAcceptCookie(true);CookieManager.getInstance().setAcceptThirdPartyCookies(siteWeb,false);
         // There is deliberately no addJavascriptInterface on siteWeb.
@@ -268,7 +271,7 @@ public final class MainActivity extends Activity {
             if(uris.isEmpty())sendToUi("importDone",result(true,"File selection cancelled"));else importDocuments(uris,0,dataGeneration);
         }else if(request==PICK_PORTAL_UPLOAD)finishUpload(WebChromeClient.FileChooserParams.parseResult(response,intent));
     }
-    @Override protected void onResume(){super.onResume();active=true;handler.removeCallbacks(periodicScan);handler.postDelayed(periodicScan,1200);if(appWeb!=null)appWeb.onResume();if(siteWeb!=null)siteWeb.onResume();}
+    @Override protected void onResume(){super.onResume();active=true;handler.removeCallbacks(periodicScan);handler.postDelayed(periodicScan,1200);if(appWeb!=null)appWeb.onResume();if(siteWeb!=null)siteWeb.onResume();if(appReady&&System.currentTimeMillis()-lastConfigRefresh>30000)new PrivateBridge().fetchConfig();}
     @Override protected void onPause(){active=false;handler.removeCallbacks(periodicScan);if(appWeb!=null)appWeb.onPause();if(siteWeb!=null)siteWeb.onPause();CookieManager.getInstance().flush();super.onPause();}
     @Override protected void onDestroy(){destroyed=true;active=false;handler.removeCallbacksAndMessages(null);finishUpload(null);io.shutdownNow();if(siteWeb!=null)siteWeb.destroy();if(appWeb!=null){appWeb.removeJavascriptInterface("AvsarGoNative");appWeb.destroy();}super.onDestroy();}
     @Override public void onBackPressed(){if(browserShown){if(siteWeb.canGoBack())siteWeb.goBack();else showChat();return;}
@@ -276,8 +279,8 @@ public final class MainActivity extends Activity {
 
     public final class PrivateBridge {
         @JavascriptInterface public String state(){try{
-            JSONObject settings=vault.aiSettings();settings.put("hasKey",!vault.getGeminiKey().isEmpty());
-            return new JSONObject().put("profile",vault.getProfile()).put("documents",vault.documents()).put("ai",settings).put("workspace",vault.workspace()).toString();
+            JSONObject settings=vault.aiSettings();settings.put("hasKey",false);JSONObject remote=vault.backendState();
+            return new JSONObject().put("profile",vault.getProfile()).put("documents",vault.documents()).put("ai",settings).put("workspace",vault.workspace()).put("server",remote.optJSONObject("config")==null?new JSONObject():remote.optJSONObject("config")).put("account",remote.optJSONObject("account")==null?new JSONObject():remote.optJSONObject("account")).toString();
         }catch(Exception e){return "{\"profile\":{},\"documents\":[],\"ai\":{},\"workspace\":{},\"storageError\":true}";}}
         @JavascriptInterface public void saveWorkspace(String raw){if(erasing||destroyed)return;final int gen=dataGeneration;io.execute(()->{try{if(gen==dataGeneration){JSONObject incoming=new JSONObject(raw),safe=new JSONObject();JSONArray messages=incoming.optJSONArray("messages"),filtered=new JSONArray();if(messages!=null)for(int i=Math.max(0,messages.length()-80);i<messages.length();i++){JSONObject m=messages.optJSONObject(i);if(m==null)continue;String role=m.optString("role");if(!role.equals("assistant")&&!role.equals("user"))continue;String text=m.optString("text");filtered.put(new JSONObject().put("role",role).put("text",text.substring(0,Math.min(5000,text.length()))).put("cloud",m.optBoolean("cloud",role.equals("user"))));}
                 safe.put("messages",filtered).put("service",incoming.optString("service").substring(0,Math.min(40,incoming.optString("service").length()))).put("custom",incoming.optString("custom").substring(0,Math.min(120,incoming.optString("custom").length())));vault.saveWorkspace(safe);}}
@@ -286,12 +289,19 @@ public final class MainActivity extends Activity {
         @JavascriptInterface public void saveProfile(String raw){if(erasing||destroyed)return;final int gen=dataGeneration;io.execute(()->{try{JSONObject incoming=new JSONObject(raw);Map<String,String> values=new LinkedHashMap<>();for(String k:ProfileRules.KEYS)values.put(k,incoming.optString(k));JSONObject safe=new JSONObject(ProfileRules.validate(values));if(safe.length()==0)throw new IllegalArgumentException("Ek detail review karein");if(gen!=dataGeneration)return;vault.saveProfile(safe);handler.post(()->cachedProfile=safe);sendToUi("profileSaved",result(true,"Profile securely saved"));}catch(Exception e){sendToUi("profileSaved",result(false,e.getMessage()));}});}
         @JavascriptInterface public void removeDocument(String id){io.execute(()->{try{vault.removeDocument(id);sendToUi("documentRemoved",result(true,"Document removed"));}catch(Exception e){sendToUi("documentRemoved",result(false,"Document delete failed"));}});}
         @JavascriptInterface public void rescanDocument(String id){final int gen=dataGeneration;io.execute(()->{try{new DocumentOcr(MainActivity.this).recognize(vault.documentData(id),vault.documentMeta(id).getString("mime"),new DocumentOcr.Listener(){public void result(JSONObject f){if(gen!=dataGeneration)return;JSONObject j=new JSONObject();try{j.put("fields",f);}catch(Exception ignored){}sendToUi("ocrResult",j);}public void error(String e){if(gen==dataGeneration)sendToUi("ocrError",MainActivity.this.result(false,e));}});}catch(Exception e){sendToUi("ocrError",result(false,"Saved document scan unavailable"));}});}
-        @JavascriptInterface public void saveAiSettings(String raw){io.execute(()->{try{JSONObject input=new JSONObject(raw);String model=input.optString("model","").trim();if(!model.isEmpty()&&!model.matches("[a-zA-Z0-9._-]{1,100}"))throw new IllegalArgumentException("Model ID invalid");String key=input.optString("key","").trim();if(input.optBoolean("removeKey"))vault.setGeminiKey("");else if(!key.isEmpty())vault.setGeminiKey(key);vault.saveAiSettings(new JSONObject().put("enabled",input.optBoolean("enabled")).put("model",model));sendToUi("keySaved",result(true,"AI settings saved"));}catch(Exception e){sendToUi("keySaved",result(false,e.getMessage()));}});}
-        @JavascriptInterface public void requestAi(String raw){final int gen=dataGeneration;
-            try{JSONObject settings=vault.aiSettings();if(!settings.optBoolean("enabled")){sendToUi("aiReply",new JSONObject().put("ok",false).put("text","Cloud chat is disabled. Enable it in Settings."));return;}
-                JSONObject request=new JSONObject(raw);new GeminiAssistant(vault).sendConversation(request,(text,ok)->{if(gen!=dataGeneration||destroyed)return;JSONObject j=new JSONObject();try{j.put("ok",ok).put("text",text).put("requestId",request.optString("requestId"));}catch(Exception ignored){}sendToUi("aiReply",j);});
-            }catch(Exception e){JSONObject j=new JSONObject();try{j.put("ok",false).put("text","AI request invalid");}catch(Exception ignored){}sendToUi("aiReply",j);}
+        @JavascriptInterface public void saveAiSettings(String raw){if(erasing||destroyed)return;final int gen=dataGeneration;io.execute(()->{try{if(gen!=dataGeneration)return;JSONObject input=new JSONObject(raw);vault.saveAiSettings(new JSONObject().put("enabled",input.optBoolean("enabled")));sendToUi("keySaved",result(true,"Chat preference saved"));}catch(Exception e){sendToUi("keySaved",result(false,"Could not save chat preference"));}});}
+        @JavascriptInterface public void requestAi(String raw){if(erasing||destroyed)return;final int gen=dataGeneration;
+            io.execute(()->{JSONObject request=new JSONObject();try{request=new JSONObject(raw);if(gen!=dataGeneration)return;if(!vault.aiSettings().optBoolean("enabled"))throw new IOException("Cloud chat is disabled. Enable it in Settings.");String text=backend.chat(request);if(gen==dataGeneration&&!destroyed)sendToUi("aiReply",new JSONObject().put("ok",true).put("text",text).put("requestId",request.optString("requestId")));}
+                catch(Exception e){if(gen==dataGeneration&&!destroyed){JSONObject reply=new JSONObject();try{reply.put("ok",false).put("text",e.getMessage()==null?"AI connection unavailable":e.getMessage()).put("requestId",request.optString("requestId"));}catch(Exception ignored){}sendToUi("aiReply",reply);}}});
         }
+        @JavascriptInterface public synchronized void fetchConfig(){if(erasing||destroyed||configRefreshing)return;configRefreshing=true;final int gen=dataGeneration;
+            io.execute(()->{try{if(gen!=dataGeneration)return;backend.refresh();lastConfigRefresh=System.currentTimeMillis();if(gen==dataGeneration)sendToUi("configUpdated",result(true,"App settings refreshed"));}catch(Exception e){if(gen==dataGeneration)sendToUi("configUpdated",result(false,"Settings refresh unavailable. Saved documents work offline."));}finally{configRefreshing=false;}});
+        }
+        @JavascriptInterface public void openAdmin(){if(erasing||destroyed)return;runOnUiThread(()->startActivity(new Intent(MainActivity.this,AdminActivity.class)));}
+        @JavascriptInterface public void openSupport(){io.execute(()->{try{String url=vault.backendState().getJSONObject("config").getJSONObject("branding").getString("supportUrl");Uri u=Uri.parse(url);if("https".equals(u.getScheme())&&u.getUserInfo()==null)runOnUiThread(()->startActivity(new Intent(Intent.ACTION_VIEW,u)));}catch(Exception ignored){}});}
+        @JavascriptInterface public void createPayment(){if(erasing||destroyed)return;final int gen=dataGeneration;io.execute(()->{try{String url=backend.checkout();if(!url.startsWith(BackendClient.BASE+"/checkout/")||!url.substring((BackendClient.BASE+"/checkout/").length()).matches("[a-zA-Z0-9_-]{40,100}"))throw new IOException("Checkout address invalid");if(gen!=dataGeneration)return;runOnUiThread(()->{try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(url)));sendToUi("paymentStatus",result(true,"Return after payment and refresh Settings to check Plus."));}catch(Exception e){sendToUi("paymentStatus",result(false,"No browser available for secure checkout"));}});}catch(Exception e){if(gen==dataGeneration)sendToUi("paymentStatus",result(false,e.getMessage()));}});}
+        @JavascriptInterface public void setAppearance(String mode){runOnUiThread(()->{boolean light="light".equals(mode);setTheme(light?android.R.style.Theme_Material_Light_NoActionBar:android.R.style.Theme_Material_NoActionBar);int color=light?Color.rgb(252,252,252):Color.rgb(32,33,35);getWindow().setStatusBarColor(color);getWindow().setNavigationBarColor(color);appWeb.setBackgroundColor(color);if(android.os.Build.VERSION.SDK_INT>=30&&getWindow().getInsetsController()!=null)getWindow().getInsetsController().setSystemBarsAppearance(light?android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS|android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS:0,android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS|android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);});}
+        @JavascriptInterface public void copyText(String text){if(text==null||text.length()>15000)return;runOnUiThread(()->{android.content.ClipboardManager clipboard=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);if(clipboard!=null)clipboard.setPrimaryClip(android.content.ClipData.newPlainText("AvsarGo response",text));});}
         @JavascriptInterface public void openDemo(){runOnUiThread(()->showBrowser(ASSETS+"demo/login.html"));}
         @JavascriptInterface public void openPortal(String url){runOnUiThread(()->showBrowser(url.trim()));}
         @JavascriptInterface public void eraseLocalData(){erasing=true;dataGeneration++;runOnUiThread(()->{autoOrigin="";cachedProfile=new JSONObject();navigationId++;finishUpload(null);siteWeb.stopLoading();siteWeb.loadUrl("about:blank");siteWeb.clearHistory();siteWeb.clearCache(true);CookieManager.getInstance().removeAllCookies(null);WebStorage.getInstance().deleteAllData();if(browserShown)showChat();});

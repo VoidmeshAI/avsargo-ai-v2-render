@@ -1,4 +1,4 @@
-name: Build AvsarGo V12 Android test APK
+name: Build AvsarGo V13 Android and admin
 on:
   workflow_dispatch:
   push:
@@ -17,7 +17,7 @@ jobs:
           java-version: '17'
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
@@ -27,27 +27,50 @@ jobs:
           gradle-version: '8.10.2'
       - name: Prepare Android SDK
         run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
-      - name: Run deterministic regression checks
+      - name: Run app and backend regression checks
         run: |
           node tests/form-agent.test.cjs
           node tests/ui-workflow.test.cjs
-          mkdir -p /tmp/avsargo-v12-tests
-          javac -d /tmp/avsargo-v12-tests app/src/main/java/com/avsargo/mobile/ProfileRules.java tests/ProfileRulesTest.java
-          java -cp /tmp/avsargo-v12-tests ProfileRulesTest
+          node --test server/test/*.test.mjs
+          mkdir -p /tmp/avsargo-v13-tests
+          javac -d /tmp/avsargo-v13-tests app/src/main/java/com/avsargo/mobile/ProfileRules.java tests/ProfileRulesTest.java
+          java -cp /tmp/avsargo-v13-tests ProfileRulesTest
       - name: Lint and compile Android APK
         run: gradle --no-daemon :app:lintDebug :app:assembleDebug
       - name: Verify APK package and signature
         run: |
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose app/build/outputs/apk/debug/app-debug.apk
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging app/build/outputs/apk/debug/app-debug.apk > apk-package.txt
-          cp app/build/outputs/apk/debug/app-debug.apk AvsarGo_AI_V12_Android_Test.apk
-          sha256sum AvsarGo_AI_V12_Android_Test.apk > AvsarGo_AI_V12_Android_Test.apk.sha256
+          cp app/build/outputs/apk/debug/app-debug.apk AvsarGo_AI_V13_Android_Test.apk
+          sha256sum AvsarGo_AI_V13_Android_Test.apk > AvsarGo_AI_V13_Android_Test.apk.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: AvsarGo-AI-V12-Android-Test-APK
+          name: AvsarGo-AI-V13-Android-Test-APK
           path: |
-            AvsarGo_AI_V12_Android_Test.apk
-            AvsarGo_AI_V12_Android_Test.apk.sha256
+            AvsarGo_AI_V13_Android_Test.apk
+            AvsarGo_AI_V13_Android_Test.apk.sha256
             apk-package.txt
           if-no-files-found: error
+          retention-days: 14
+  visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install browser test runtime
+        run: |
+          npm --prefix /tmp/avsargo-browser install playwright@1.56.1
+          /tmp/avsargo-browser/node_modules/.bin/playwright install --with-deps chromium
+      - name: Verify rendered app and admin screens
+        env:
+          PLAYWRIGHT_PATH: /tmp/avsargo-browser/node_modules/playwright
+        run: node scripts/visual-check.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: AvsarGo-V13-UI-Verification
+          path: visual-checks/*.png
           retention-days: 14

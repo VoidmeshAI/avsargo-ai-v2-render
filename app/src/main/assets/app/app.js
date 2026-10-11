@@ -15,12 +15,18 @@
     passport:{name:'Passport',docs:['Address proof','Date of birth proof','Case-specific documents'],url:'https://www.passportindia.gov.in/',note:'New/reissue application alag hai. Appointment aur verification aap khud complete karenge.'},
     voter:{name:'Voter application',docs:['Identity / age proof','Residence proof','Photo as required'],url:'',note:'Apne official voter application portal ka link daalein. New registration/correction service verify karein.'}
   };
-  let workspace={profile:{},documents:[],ai:{},workspace:{}},currentService='',currentCustomService='',chatMessages=[],awaiting=false,importing=false,pendingOcr={},pendingNode=null,requestId='',saveTimer=null;
-  document.body.classList.toggle('theme-dark',storage.getItem('av_theme')==='dark');
+  let workspace={profile:{},documents:[],ai:{},workspace:{},server:{}},currentService='',currentCustomService='',chatMessages=[],awaiting=false,importing=false,pendingOcr={},pendingNode=null,requestId='',saveTimer=null,consentMessage='';
+  function appearance(){const mode=storage.getItem('av_theme')||workspace.server?.branding?.theme||'dark';document.body.classList.toggle('theme-dark',mode!=='light');document.body.classList.toggle('theme-light',mode==='light');native?.setAppearance?.(mode);}
+  appearance();
   const node=(tag,cl,text)=>{const el=document.createElement(tag);if(cl)el.className=cl;if(text!==undefined)el.textContent=text;return el;};
   const append=(parent,tag,cl,text)=>{const el=node(tag,cl,text);parent.append(el);return el;};
   function notify(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(notify.timer);notify.timer=setTimeout(()=>$('toast').hidden=true,3500);}
-  function refresh(){if(!onPhone)return;try{const value=JSON.parse(native.state());workspace={profile:{},documents:[],ai:{},workspace:{},...value};if(!Array.isArray(workspace.documents))workspace.documents=[];$('docCount').textContent=String(workspace.documents.length);if(workspace.storageError)notify('Saved data read nahi hua. Settings mein help check karein.');}catch(_){notify('Private storage unavailable');}}
+  function refresh(){if(!onPhone)return;try{const value=JSON.parse(native.state());workspace={profile:{},documents:[],ai:{},workspace:{},server:{},...value};if(!Array.isArray(workspace.documents))workspace.documents=[];$('docCount').textContent=String(workspace.documents.length);if(workspace.storageError)notify('Saved data read nahi hua. Settings mein help check karein.');}catch(_){notify('Private storage unavailable');}}
+  function applyRemote(){const c=workspace.server||{},b=c.branding||{};appearance();document.querySelectorAll('[data-brand]').forEach(n=>n.textContent=b.name||'AvsarGo AI');if($('welcomeTitle')&&b.greeting)$('welcomeTitle').textContent=b.greeting;if($('welcomeCopy')&&b.tagline)$('welcomeCopy').textContent=b.tagline;
+    if($('announcement')){$('announcement').hidden=!b.announcement;$('announcement').textContent=b.announcement||'';}
+    if(/^#[0-9a-f]{6}$/i.test(b.accent)){document.body.style.setProperty('--accent',b.accent);const v=b.accent.slice(1),l=.299*parseInt(v.slice(0,2),16)+.587*parseInt(v.slice(2,4),16)+.114*parseInt(v.slice(4,6),16);document.body.style.setProperty('--accent-ink',l>155?'#14231b':'#ffffff');}
+    for(const [id,url]of Object.entries(c.portals||{}))if(services[id]&&typeof url==='string')services[id].url=url;
+  }
   function persist(){if(!onPhone)return;clearTimeout(saveTimer);saveTimer=setTimeout(()=>{try{native.saveWorkspace(JSON.stringify({messages:chatMessages.slice(-80),service:currentService,custom:currentCustomService}));}catch(_){notify('Chat save unavailable');}},180);}
   function toggleMenu(open){$('drawer').classList.toggle('open',open);$('scrim').classList.toggle('visible',open);$('drawer').setAttribute('aria-hidden',String(!open));}
   function hideSheet(){$('modal').hidden=true;$('sheetBody').replaceChildren();$('sheetActions').replaceChildren();}
@@ -30,13 +36,15 @@
   }
   function info(parent,text,warn=false){return append(parent,'div','info-box'+(warn?' warning-box':''),text);}
   function button(text,action,primary=false){const b=node('button','chip-action'+(primary?' primary':''),text);b.onclick=action;return b;}
+  function inline(parent,text){for(const part of text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g)){if(part.startsWith('**')&&part.endsWith('**'))parent.append(node('strong','',part.slice(2,-2)));else if(part.startsWith('`')&&part.endsWith('`'))parent.append(node('code','',part.slice(1,-1)));else parent.append(node('span','',part));}}
+  function formatted(parent,text){let list=null,code=null;for(const line of String(text).split('\n')){if(line.startsWith('```')){if(code){code=null;}else{code=node('pre');parent.append(code);}list=null;continue;}if(code){code.textContent+=(code.textContent?'\n':'')+line;continue;}if(!line.trim()){list=null;continue;}const bullet=line.match(/^\s*(?:[-•*]|\d+\.)\s+(.+)$/);if(bullet){if(!list){list=node('ul');parent.append(list);}const li=node('li');inline(li,bullet[1]);list.append(li);continue;}list=null;const heading=line.match(/^#{1,3}\s+(.+)$/),p=node(heading?'h3':'p');inline(p,heading?heading[1]:line);parent.append(p);}}
   function message(role,text,actions=[],save=true,cloud=role==='user'){
     $('welcome').hidden=true;const wrap=node('div','message '+role);if(role==='assistant')wrap.append(node('div','avatar','✦'));
-    const body=node('div','msg-body',text);if(actions.length){const row=node('div','action-inline');for(const a of actions)row.append(button(a.text,a.action,a.primary));body.append(row);}wrap.append(body);$('messages').append(wrap);
+    const body=node('div','msg-body');if(role==='user')body.textContent=text;else formatted(body,text);if(actions.length){const row=node('div','action-inline');for(const a of actions)row.append(button(a.text,a.action,a.primary));body.append(row);}if(role==='assistant'&&save&&cloud){const tools=node('div','message-tools'),copy=node('button','','Copy response');copy.onclick=()=>{native?.copyText?.(text);notify('Response copied');};tools.append(copy);body.append(tools);}wrap.append(body);$('messages').append(wrap);
     if(save){chatMessages.push({role,text,cloud});chatMessages=chatMessages.slice(-80);persist();}
     requestAnimationFrame(()=>$('chatScroll').scrollTo({top:$('chatScroll').scrollHeight,behavior:'smooth'}));return wrap;
   }
-  function grow(){const input=$('chatInput');input.style.height='auto';input.style.height=Math.min(130,input.scrollHeight)+'px';}
+  function grow(){const input=$('chatInput');input.style.height='auto';input.style.height=Math.min(130,input.scrollHeight)+'px';$('send').classList.toggle('empty',!input.value.trim());}
   function spec(){return services[currentService]||{name:currentCustomService||'Application',docs:['Official checklist ke required identity / qualification / supporting documents'],url:'',note:'Exact form name aur official HTTPS application link batayein. Unknown forms ko kisi doosre department par route nahi karunga.'};}
   function infer(text){
     if(/railway|\brrb\b|ntpc|रेलवे/i.test(text))return 'rrb';
@@ -52,14 +60,16 @@
   function progress(){const valid=Object.keys(workspace.profile||{}).length>0;$('progressPill').hidden=!currentService;$('progressText').textContent=valid?'Profile ready · Open your form':'Prepare documents · Review details';$('progressAction').textContent=valid?'Open →':'Continue →';$('progressAction').onclick=valid?browserPanel:uploadDocs;}
   function answer(raw){
     const text=raw.trim();if(!text||awaiting)return;if(text.length>4000){notify('Message ko 4000 characters se chhota rakhein');return;}
+    refresh();if(workspace.server?.maintenance?.enabled)return notify(workspace.server.maintenance.message);
+    if(onPhone&&workspace.server?.ai?.ready&&!workspace.ai.enabled){const box=node('div');info(box,'AI chat enable karne par aapke typed messages app ke secure server aur configured AI provider ko jayenge. Documents aur reviewed profile automatically nahi bheje jayenge.');sheet('Chat with AvsarGo',box,[{text:'Abhi nahi',action:hideSheet},{text:'Enable & continue',primary:true,action:()=>{consentMessage=text;hideSheet();native.saveAiSettings(JSON.stringify({enabled:true}));}}]);return;}
     message('user',text);$('chatInput').value='';grow();const id=infer(text);if(id){currentService=id;currentCustomService=id==='general'?text.slice(0,120):'';progress();persist();}
-    refresh();if(onPhone&&workspace.ai.enabled&&workspace.ai.hasKey){
-      awaiting=true;$('send').disabled=true;requestId=String(Date.now())+Math.random().toString(36).slice(2);pendingNode=message('assistant','Soch raha hoon…',[],false);pendingNode.classList.add('typing');
+    refresh();if(onPhone&&workspace.ai.enabled&&workspace.server?.ai?.ready){
+      awaiting=true;$('send').disabled=true;requestId=String(Date.now())+Math.random().toString(36).slice(2);pendingNode=message('assistant','',[],false);pendingNode.classList.add('typing');const dots=node('div','thinking');dots.setAttribute('aria-label','AvsarGo is thinking');for(let i=0;i<3;i++)dots.append(node('span'));pendingNode.lastElementChild.append(dots);
       try{native.requestAi(JSON.stringify({requestId,messages:chatMessages.filter(m=>m.cloud===true||m.role==='user').slice(-16)}));}catch(_){awaiting=false;$('send').disabled=false;pendingNode?.remove();notify('AI connection unavailable');}return;
     }
     if(id){const s=spec();message('assistant',s.name+' ke liye pehle documents taiyar karte hain.\n\nIndicative checklist:\n'+s.docs.map(x=>'• '+x).join('\n')+'\n\n'+s.note+'\n\nDocuments upload karo, extracted details review karo, phir app ke andar official form kholenge.',actions());}
     else if(currentService&&/done|next|continue|aage|आगे|ho gay[ao]/i.test(text)){message('assistant','Reviewed profile ready hai to official form app mein khol sakte hain. Login, OTP, CAPTCHA, payment aur final submit aap khud karenge.',[{text:'Open form',action:browserPanel,primary:true}]);}
-    else message('assistant','Kaunsa form bharna hai? Form ka naam aur state batayein. Documents aur reviewed profile se supported fields fill kar sakte hain.\n\nAbhi live AI connection configured nahi hai. Natural AI chat ke liye Settings mein connection enable karein.',[{text:'Settings',action:settingsPanel},{text:'Upload documents',action:uploadDocs}]);
+    else message('assistant','Kaunsa form bharna hai? Form ka naam aur state batayein. Documents aur reviewed profile se supported fields fill kar sakte hain.\n\nAbhi live AI chat configured nahi hai. Owner Admin panel mein connection configure kar sakta hai.',[{text:'Settings',action:settingsPanel},{text:'Upload documents',action:uploadDocs}]);
   }
   function renderDocs(parent){
     parent.replaceChildren();if(!workspace.documents.length){append(parent,'p','hint','Abhi koi document saved nahi hai.');return;}
@@ -103,17 +113,20 @@
     }}]);
   }
   function settingsPanel(){
-    refresh();const box=node('div');append(box,'h3','','Appearance');const modes=node('div','action-inline');for(const mode of ['light','dark'])modes.append(button(mode==='light'?'Light':'Dark',()=>{document.body.classList.toggle('theme-dark',mode==='dark');storage.setItem('av_theme',mode);}));box.append(modes);
-    const advanced=node('details','advanced-settings');append(advanced,'summary','','AI connection');box.append(advanced);
-    info(advanced,'Live AI chat ke liye apni Gemini key configure karein. Provider/key controls chat screen par nahi dikhte. Koi API key APK mein embed nahi hai. Cloud chat off rehne par local document/form tools kaam karte hain.');
-    const group=node('div','form-group');append(group,'label','','API key');const key=node('input');key.id='aiKey';key.type='password';key.autocomplete='off';key.placeholder=workspace.ai.hasKey?'Saved key hidden':'Enter key';group.append(key);advanced.append(group);
-    const modelGroup=node('div','form-group');append(modelGroup,'label','','Model ID (optional)');const model=node('input');model.id='aiModel';model.value=workspace.ai.model||'';model.placeholder='Blank = discover a supported Flash model';modelGroup.append(model);advanced.append(modelGroup);
-    const consent=node('label','checkrow'),enabled=node('input');enabled.type='checkbox';enabled.id='cloudConsent';enabled.checked=!!workspace.ai.enabled;consent.append(enabled,node('span','','Cloud chat enable: typed conversation Google ko jayegi. Uploaded scans aur profile values automatically nahi bheji jayengi. Provider quota / charges aapki API settings par depend karte hain.'));advanced.append(consent);
-    const row=node('div','action-inline');row.append(button('Save connection',()=>{if(!onPhone)return notify('Android app required');native.saveAiSettings(JSON.stringify({key:key.value.trim(),model:model.value.trim(),enabled:enabled.checked}));key.value='';},true),button('Remove key',()=>{if(onPhone&&confirm('Saved AI key delete karein?'))native.saveAiSettings(JSON.stringify({removeKey:true,enabled:false,model:''}));}));advanced.append(row);
-    append(box,'h3','','Privacy');info(box,'Documents, profile aur chat locally encrypted hain. Saved documents website ko tabhi milte hain jab aap portal ke upload picker mein select aur approve karte hain.');
-    box.append(button('Delete all app data',()=>{if(importing||awaiting)return notify('Current scan / AI response complete hone dein');if(confirm('Documents, profile, chat, AI key aur website login sessions permanently delete karein?'))native?.eraseLocalData();}));
+    refresh();const box=node('div');append(box,'h3','','Appearance');const modes=node('div','action-inline');for(const mode of ['auto','light','dark'])modes.append(button(mode==='auto'?'App default':mode==='light'?'Light':'Dark',()=>{if(mode==='auto')storage.removeItem('av_theme');else storage.setItem('av_theme',mode);appearance();}));box.append(modes);
+    append(box,'h3','','AI chat');const consent=node('label','checkrow'),enabled=node('input');enabled.type='checkbox';enabled.id='cloudConsent';enabled.checked=!!workspace.ai.enabled;consent.append(enabled,node('span','','Enable cloud chat. Typed messages are sent to the app server and its AI provider. Uploaded scans and reviewed profile are not sent automatically.'));box.append(consent);
+    info(box,workspace.server?.ai?.ready?'AI connection is configured by the owner.':'AI is not configured yet. The owner can add a provider key and model in Admin panel.');
+    box.append(button('Save chat preference',()=>{if(!onPhone)return notify('Android app required');native.saveAiSettings(JSON.stringify({enabled:enabled.checked}));},true));
+    append(box,'h3','','AvsarGo Plus');const p=workspace.server?.payment||{};info(box,p.ready?p.planName+' · ₹'+(p.pricePaise/100).toFixed(2)+' / '+p.durationDays+' days'+(p.mode==='test'?' · Test payment':''):'Plus payments are currently disabled.');
+    const account=node('p','hint',workspace.account?.paid?'Plus active until '+new Date(workspace.account.plusUntil).toLocaleDateString():workspace.account?'Today: '+workspace.account.used+' / '+workspace.account.dailyLimit+' AI chats':'Your allowance will appear after the next refresh.');box.append(account);
+    if(p.ready)box.append(button(p.mode==='test'?'Open test checkout':'Get Plus',()=>native?.createPayment?.(),true));
+    box.append(button('Refresh app settings',()=>{native?.fetchConfig?.();notify('Refreshing settings…');}));
+    append(box,'h3','','Owner controls');info(box,'Manage AI/payment keys, pricing, app appearance, usage limits, support and official portals. Owner sign-in is required.');box.append(button('Open admin panel',()=>{hideSheet();native?.openAdmin?.();},true));
+    const b=workspace.server?.branding||{};if(b.supportEmail)info(box,'Support: '+b.supportEmail);if(b.supportUrl)box.append(button('Open support',()=>native?.openSupport?.()));
+    append(box,'h3','','Privacy');info(box,'Documents, reviewed profile and chat are encrypted on this phone. A selected document is shared with a portal only after you approve its upload. Plus is linked to this app installation.');
+    box.append(button('Delete all app data',()=>{if(importing||awaiting)return notify('Current scan / AI response complete hone dein');if(confirm('Documents, profile, chat, AI preference and website login sessions permanently delete karein? Plus access on this installation will also be removed.'))native?.eraseLocalData();}));
     const tests=node('details','advanced-settings');append(tests,'summary','','Test tools');info(tests,'Local sample form real government site nahi hai. Dummy profile ke saath login → details → next step → document upload → OTP/CAPTCHA test kar sakte hain.');tests.append(button('Open sample form',()=>{if(!Object.keys(workspace.profile).length)return profilePanel({fullName:'Test Applicant',firstName:'Test',lastName:'Applicant',fatherName:'Sample Parent',dob:'01/01/2000',email:'test@example.com',mobile:'9876543210',address:'Example Lane',state:'Delhi',city:'Delhi',pincode:'110001'});if(onPhone){hideSheet();native.openDemo();}}));box.append(tests);
-    append(box,'p','hint','AvsarGo AI · V12 test source · Independent application assistant');sheet('Settings',box,[{text:'Done',primary:true,action:hideSheet}]);
+    append(box,'p','hint','AvsarGo AI · Android 13.0 test · Independent application assistant');sheet('Your settings',box,[{text:'Done',primary:true,action:hideSheet}]);
   }
   window.AvsarGoEvent=(name,data)=>{
     switch(name){
@@ -126,22 +139,25 @@
       case 'documentRemoved':refresh();notify(data.message);if($('docList'))renderDocs($('docList'));break;
       case 'profileSaved':refresh();notify(data.message);if(data.ok){hideSheet();pendingOcr={};progress();message('assistant','Details reviewed aur save ho gayi hain. Ab official application app mein khol sakte hain.',[{text:'Open form',action:browserPanel,primary:true}]);}break;
       case 'profileUpdated':refresh();notify(data.message);progress();break;
-      case 'keySaved':refresh();notify(data.message);break;
+      case 'keySaved':refresh();notify(data.message);if(data.ok&&consentMessage){const text=consentMessage;consentMessage='';answer(text);}break;
+      case 'configUpdated':refresh();applyRemote();if(!data.ok)notify(data.message);break;
+      case 'paymentStatus':refresh();notify(data.message);break;
       case 'aiReply':if(data.requestId&&data.requestId!==requestId)break;awaiting=false;$('send').disabled=false;pendingNode?.remove();pendingNode=null;
         message('assistant',data.ok?data.text:'AI connection issue: '+data.text,data.ok&&currentService?actions():[{text:'Settings',action:settingsPanel}],true,!!data.ok);break;
       case 'storageError':notify(data.message);break;
       case 'erased':if(!data.ok){notify(data.message);break;}clearTimeout(saveTimer);requestId='';pendingNode?.remove();chatMessages=[];currentService='';currentCustomService='';pendingOcr={};awaiting=false;importing=false;refresh();$('messages').replaceChildren();$('welcome').hidden=false;$('send').disabled=false;$('chatInput').value='';$('progressPill').hidden=true;storage.removeItem('av_cloud_opt_in');hideSheet();notify(data.message);break;
     }
   };
-  window.avsargoOnReturn=()=>{refresh();progress();};
+  window.avsargoOnReturn=()=>{refresh();progress();native?.fetchConfig?.();};
   window.avsargoHandleBack=()=>{if(!$('modal').hidden){hideSheet();return true;}if($('drawer').classList.contains('open')){toggleMenu(false);return true;}return false;};
   $('menuButton').onclick=()=>toggleMenu(true);$('closeMenu').onclick=()=>toggleMenu(false);$('scrim').onclick=()=>toggleMenu(false);
   $('newChat').onclick=()=>{if(awaiting)return notify('Current reply complete hone dein');toggleMenu(false);chatMessages=[];currentService='';currentCustomService='';pendingNode?.remove();requestId='';$('messages').replaceChildren();$('welcome').hidden=false;progress();persist();};
   $('openDocs').onclick=uploadDocs;$('openProfile').onclick=()=>profilePanel();$('openBrowser').onclick=browserPanel;$('openSettings').onclick=settingsPanel;
   $('profileShortcut').onclick=()=>profilePanel();$('attach').onclick=uploadDocs;$('closeSheet').onclick=hideSheet;$('send').onclick=()=>answer($('chatInput').value);
+  if($('topNewChat'))$('topNewChat').onclick=$('newChat').onclick;if($('brandSettings'))$('brandSettings').onclick=settingsPanel;
   $('chatInput').oninput=grow;$('chatInput').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();answer(event.target.value);}});
   document.querySelectorAll('[data-prompt]').forEach(b=>b.onclick=()=>answer(b.dataset.prompt));
   refresh();const old=workspace.workspace||{};currentService=services[old.service]||old.service==='general'?old.service:'';currentCustomService=old.custom||'';
   if(Array.isArray(old.messages))for(const item of old.messages.slice(-80))if(['assistant','user'].includes(item.role))message(item.role,String(item.text),[],false);
-  chatMessages=Array.isArray(old.messages)?old.messages.slice(-80):[];progress();
+  chatMessages=Array.isArray(old.messages)?old.messages.slice(-80):[];progress();applyRemote();grow();native?.fetchConfig?.();
 })();

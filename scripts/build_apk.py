@@ -36,7 +36,7 @@ def main():
     subprocess.run(command,cwd=ROOT,env=env,check=True,shell=False)
     apk=ROOT/'app/build/outputs/apk/debug/app-debug.apk'
     if not apk.exists():raise RuntimeError('Gradle returned without an APK')
-    output=ROOT/'AvsarGo_AI_V12_Android_Test.apk';shutil.copy2(apk,output)
+    output=ROOT/'AvsarGo_AI_V13_Android_Test.apk';shutil.copy2(apk,output)
     print('APK created:',output);print('SHA-256:',hashlib.sha256(output.read_bytes()).hexdigest())
     return 0
 if __name__=='__main__':

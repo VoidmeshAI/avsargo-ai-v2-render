@@ -7,3 +7,10 @@ local.properties
 *.jks
 *.keystore
 .idea/
+
+node_modules/
+visual-checks/
+*.db
+*.db-shm
+*.db-wal
+*.env
