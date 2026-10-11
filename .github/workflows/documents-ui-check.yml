@@ -1,0 +1,31 @@
+name: Verify document AI and autofill workflow
+on:
+  workflow_dispatch:
+  push:
+    branches: ['android/v14-documents-ai-autofill']
+    paths: ['app/src/main/assets/app/**', 'server/**', 'scripts/document-browser-check.mjs', '.github/workflows/documents-ui-check.yml']
+permissions:
+  contents: read
+jobs:
+  documents:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install Chromium runtime
+        run: |
+          npm --prefix /tmp/avsargo-browser install playwright@1.56.1
+          /tmp/avsargo-browser/node_modules/.bin/playwright install --with-deps chromium
+      - name: Verify document review and form filling
+        env:
+          PLAYWRIGHT_PATH: /tmp/avsargo-browser/node_modules/playwright
+        run: node scripts/document-browser-check.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: AvsarGo-V14-Documents-Verification
+          path: visual-checks/documents*.png
+          retention-days: 14
