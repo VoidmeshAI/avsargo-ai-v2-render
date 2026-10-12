@@ -44,6 +44,9 @@ public final class MainActivity extends Activity {
     private final ArrayList<String> events=new ArrayList<>();
     private ValueCallback<Uri[]> portalFileCallback;
     private WebChromeClient.FileChooserParams uploadParams;
+    private boolean uploadActivationPending=false;
+    private long uploadActivationId=0;
+    private String pendingUploadFieldSignature="";
     private volatile int dataGeneration=0;
     private volatile boolean erasing=false;
     private boolean nextFormAiConsent=false,formAiConsent=false;
@@ -119,6 +122,7 @@ public final class MainActivity extends Activity {
                 if(!r.isForMainFrame())return false;String u=r.getUrl().toString();if(allowedUrl(u))return false;warnExternal(u);return true;
             }
             @Override public void onPageStarted(WebView v,String url,android.graphics.Bitmap icon){
+                uploadActivationPending=false;uploadActivationId++;pendingUploadFieldSignature="";
                 navigationId++;scanBusy=false;portalLoading=true;lastPromptSignature="";aiMappingSignature="";lastAiSignature="";aiMappings=new JSONObject();pendingUnknown=new JSONArray();finishUpload(null);attemptedUploads.clear();
                 if(!allowedUrl(url)){v.stopLoading();autoOrigin="";browserStatus.setText("Unsupported page. Assist paused.");return;}
                 currentPortalUrl=url;try{if(vault.automationAllowed())autoOrigin=origin(url);else autoOrigin="";}catch(Exception e){autoOrigin="";}
@@ -136,6 +140,8 @@ public final class MainActivity extends Activity {
         siteWeb.setWebChromeClient(new WebChromeClient(){
             @Override public void onProgressChanged(WebView v,int progress){browserProgress.setProgress(progress);browserProgress.setVisibility(progress<100?View.VISIBLE:View.GONE);}
             @Override public boolean onShowFileChooser(WebView v,ValueCallback<Uri[]> callback,FileChooserParams params){
+                if(!pendingUploadFieldSignature.isEmpty())attemptedUploads.add(pendingUploadFieldSignature);
+                uploadActivationPending=false;uploadActivationId++;pendingUploadFieldSignature="";
                 if(portalFileCallback!=null)portalFileCallback.onReceiveValue(null);portalFileCallback=callback;uploadParams=params;
                 offerPortalDocuments();return true;
             }
@@ -321,10 +327,40 @@ public final class MainActivity extends Activity {
     }
     private Uri documentUri(JSONObject doc){return Uri.parse("content://"+getPackageName()+".documents/"+doc.optString("id"));}
     private String documentKind(String label){String d=label.toLowerCase(Locale.ROOT);if(d.matches(".*(aadhaar|aadhar|आधार).*"))return "aadhaar";if(d.matches(".*(pan card|pan document|पैन).*"))return "pan";if(d.matches(".*(signature|हस्ताक्षर).*"))return "signature";if(d.matches(".*(photo|photograph|फोटो).*"))return "photo";if(d.matches(".*(marksheet|mark sheet|अंक).*"))return "marksheet";if(d.matches(".*(bank|passbook|खाता).*"))return "bank";if(d.matches(".*(passport).*"))return "passport";if(d.matches(".*(caste|जाति).*"))return "caste";if(d.matches(".*(income|आय).*"))return "income";if(d.matches(".*(domicile|निवास).*"))return "domicile";return "";}
-    private void autoUpload(JSONObject scan,int nav,String url){try{if(!formAiConsent||portalFileCallback!=null)return;JSONArray uploads=scan.optJSONArray("uploads");if(uploads==null)return;JSONArray docs=vault.documents();for(int i=0;i<uploads.length();i++){JSONObject field=uploads.getJSONObject(i);String kind=documentKind(field.optString("label")),sig=nav+":"+field.optString("fieldId");if(kind.isEmpty()||attemptedUploads.contains(sig))continue;int n=0;for(int j=0;j<docs.length();j++)if(kind.equals(docs.getJSONObject(j).optString("type")))n++;if(n!=1)continue;attemptedUploads.add(sig);pendingUploadLabel=field.optString("label");JSONObject payload=new JSONObject().put("signature",scan.optString("signature")).put("fieldId",field.optString("fieldId"));handler.postDelayed(()->{if(browserShown&&nav==navigationId&&url.equals(siteWeb.getUrl()))siteWeb.evaluateJavascript("("+helperJs+")(\"scan\",null)",raw->{try{JSONObject fresh=parseJs(raw);payload.put("signature",fresh.optString("signature"));if(nav==navigationId&&url.equals(siteWeb.getUrl()))activateUpload(payload,nav,url);}catch(Exception ignored){}});},500);return;}}catch(Exception ignored){}}
+    private void autoUpload(JSONObject scan,int nav,String url){try{if(!formAiConsent||portalFileCallback!=null||uploadActivationPending)return;JSONArray uploads=scan.optJSONArray("uploads");if(uploads==null)return;JSONArray docs=vault.documents();for(int i=0;i<uploads.length();i++){JSONObject field=uploads.getJSONObject(i);String kind=documentKind(field.optString("label")),sig=nav+":"+field.optString("fieldId");if(kind.isEmpty()||attemptedUploads.contains(sig))continue;int n=0;for(int j=0;j<docs.length();j++)if(kind.equals(docs.getJSONObject(j).optString("type")))n++;if(n!=1)continue;pendingUploadLabel=field.optString("label");JSONObject payload=new JSONObject().put("signature",scan.optString("signature")).put("fieldId",field.optString("fieldId"));activateUpload(payload,nav,url);return;}}catch(Exception ignored){}}
     private void activateUpload(JSONObject payload,int nav,String url){
-        if(!browserShown||!formAiConsent||nav!=navigationId||!url.equals(siteWeb.getUrl()))return;
-        siteWeb.evaluateJavascript("("+helperJs+")(\"uploadTarget\","+payload+")",raw->{try{if(!browserShown||nav!=navigationId||!url.equals(siteWeb.getUrl()))return;JSONObject r=parseJs(raw);if(!r.optBoolean("ok")||!r.optBoolean("safeTarget")){browserStatus.setText("Tap the portal's document upload field to continue.");return;}double width=r.optDouble("viewportWidth",0);if(width<=0)return;float scale=(float)(siteWeb.getWidth()/width),x=(float)r.optDouble("x",-1)*scale,y=(float)r.optDouble("y",-1)*scale;if(x<0||y<0||x>=siteWeb.getWidth()||y>=siteWeb.getHeight())return;siteWeb.requestFocus();long time=android.os.SystemClock.uptimeMillis();android.view.MotionEvent down=android.view.MotionEvent.obtain(time,time,android.view.MotionEvent.ACTION_DOWN,x,y,0),up=android.view.MotionEvent.obtain(time,time+60,android.view.MotionEvent.ACTION_UP,x,y,0);down.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN);up.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN);try{siteWeb.dispatchTouchEvent(down);siteWeb.dispatchTouchEvent(up);}finally{down.recycle();up.recycle();}}catch(Exception e){browserStatus.setText("Tap the document upload field to continue.");}});
+        if(!active||!browserShown||!formAiConsent||nav!=navigationId||!url.equals(siteWeb.getUrl())||uploadActivationPending)return;
+        uploadActivationPending=true;pendingUploadFieldSignature=nav+":"+payload.optString("fieldId");long token=++uploadActivationId;
+        prepareUploadTouch(payload,nav,url,token,0);
+    }
+    private boolean uploadContext(int nav,String url,long token){return active&&browserShown&&formAiConsent&&token==uploadActivationId&&nav==navigationId&&url.equals(siteWeb.getUrl());}
+    private void retryUploadTouch(JSONObject payload,int nav,String url,long token,int attempt){
+        if(!uploadContext(nav,url,token))return;
+        if(attempt>=2){attemptedUploads.add(pendingUploadFieldSignature);uploadActivationPending=false;pendingUploadFieldSignature="";browserStatus.setText("Tap the portal's document upload field to continue.");return;}
+        handler.postDelayed(()->prepareUploadTouch(payload,nav,url,token,attempt+1),300);
+    }
+    private void prepareUploadTouch(JSONObject payload,int nav,String url,long token,int attempt){
+        if(!uploadContext(nav,url,token))return;
+        if(!siteWeb.hasWindowFocus()){retryUploadTouch(payload,nav,url,token,attempt);return;}
+        siteWeb.evaluateJavascript("("+helperJs+")(\"scan\",null)",raw->{try{
+            if(!uploadContext(nav,url,token))return;payload.put("signature",parseJs(raw).optString("signature")).put("measureOnly",false);
+            siteWeb.evaluateJavascript("("+helperJs+")(\"uploadTarget\","+payload+")",target->{try{
+                if(!uploadContext(nav,url,token))return;JSONObject r=parseJs(target);if(!r.optBoolean("ok")||!r.optBoolean("safeTarget")){retryUploadTouch(payload,nav,url,token,attempt);return;}
+                // A DOM scroll can finish before Chromium has drawn it. Wait for that frame,
+                // then revalidate the same file input before sending a real timed gesture.
+                siteWeb.postVisualStateCallback(token,new WebView.VisualStateCallback(){@Override public void onComplete(long id){
+                    if(!uploadContext(nav,url,token))return;try{payload.put("measureOnly",true);}catch(Exception e){retryUploadTouch(payload,nav,url,token,attempt);return;}
+                    siteWeb.evaluateJavascript("("+helperJs+")(\"uploadTarget\","+payload+")",fresh->{try{
+                        if(!uploadContext(nav,url,token)||!siteWeb.hasWindowFocus())return;JSONObject position=parseJs(fresh);if(!position.optBoolean("ok")||!position.optBoolean("safeTarget")){retryUploadTouch(payload,nav,url,token,attempt);return;}
+                        double width=position.optDouble("viewportWidth",0);if(width<=0){retryUploadTouch(payload,nav,url,token,attempt);return;}
+                        float scale=(float)(siteWeb.getWidth()/width),x=(float)position.optDouble("x",-1)*scale,y=(float)position.optDouble("y",-1)*scale;
+                        if(x<0||y<0||x>=siteWeb.getWidth()||y>=siteWeb.getHeight()){retryUploadTouch(payload,nav,url,token,attempt);return;}
+                        siteWeb.requestFocus();long downTime=android.os.SystemClock.uptimeMillis();android.view.MotionEvent down=android.view.MotionEvent.obtain(downTime,downTime,android.view.MotionEvent.ACTION_DOWN,x,y,0);down.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN);try{siteWeb.dispatchTouchEvent(down);}finally{down.recycle();}
+                        handler.postDelayed(()->{boolean valid=uploadContext(nav,url,token)&&siteWeb.hasWindowFocus();android.view.MotionEvent end=android.view.MotionEvent.obtain(downTime,android.os.SystemClock.uptimeMillis(),valid?android.view.MotionEvent.ACTION_UP:android.view.MotionEvent.ACTION_CANCEL,x,y,0);end.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN);try{siteWeb.dispatchTouchEvent(end);}finally{end.recycle();}if(valid)handler.postDelayed(()->retryUploadTouch(payload,nav,url,token,attempt),450);},80);
+                    }catch(Exception e){retryUploadTouch(payload,nav,url,token,attempt);}});
+                }});
+            }catch(Exception e){retryUploadTouch(payload,nav,url,token,attempt);}});
+        }catch(Exception e){retryUploadTouch(payload,nav,url,token,attempt);}});
     }
     private Map<String,String> extraLabels(JSONObject meta){Map<String,String> out=new LinkedHashMap<>();for(Iterator<String> it=meta.keys();it.hasNext();){String k=it.next();JSONObject m=meta.optJSONObject(k);if(m!=null)out.put(k,m.optString("label"));}return out;}
     private String profileLabel(String key){JSONObject m=cachedMeta.optJSONObject(key);return m!=null?m.optString("label",ProfileRules.label(key)):ProfileRules.label(key);}
@@ -337,7 +373,7 @@ public final class MainActivity extends Activity {
         }else if(request==PICK_PORTAL_UPLOAD)finishUpload(WebChromeClient.FileChooserParams.parseResult(response,intent));
     }
     @Override protected void onResume(){super.onResume();active=true;handler.removeCallbacks(periodicScan);handler.postDelayed(periodicScan,1200);if(appWeb!=null)appWeb.onResume();if(siteWeb!=null)siteWeb.onResume();if(appReady&&System.currentTimeMillis()-lastConfigRefresh>30000)new PrivateBridge().fetchConfig();}
-    @Override protected void onPause(){active=false;handler.removeCallbacks(periodicScan);if(appWeb!=null)appWeb.onPause();if(siteWeb!=null)siteWeb.onPause();CookieManager.getInstance().flush();super.onPause();}
+    @Override protected void onPause(){active=false;uploadActivationPending=false;uploadActivationId++;pendingUploadFieldSignature="";handler.removeCallbacks(periodicScan);if(appWeb!=null)appWeb.onPause();if(siteWeb!=null)siteWeb.onPause();CookieManager.getInstance().flush();super.onPause();}
     @Override protected void onDestroy(){destroyed=true;active=false;handler.removeCallbacksAndMessages(null);finishUpload(null);io.shutdownNow();if(siteWeb!=null)siteWeb.destroy();if(appWeb!=null){appWeb.removeJavascriptInterface("AvsarGoNative");appWeb.destroy();}super.onDestroy();}
     @Override public void onBackPressed(){if(browserShown){if(siteWeb.canGoBack())siteWeb.goBack();else showChat();return;}
         appWeb.evaluateJavascript("window.avsargoHandleBack?window.avsargoHandleBack():false",value->{if(!"true".equals(value))finish();});}

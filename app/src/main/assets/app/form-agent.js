@@ -89,7 +89,7 @@ function avsarGoFormAgent(mode, payload) {
     if(!payload||payload.signature!==signature)return {ok:false,error:'PAGE_CHANGED'};
     const target=uploads.find(m=>m.fieldId===payload.fieldId);if(!target)return {ok:false,error:'Upload field unavailable'};
     if(mode==='uploadTarget'){
-      const input=target.element;input.scrollIntoView({block:'center',inline:'nearest'});const rect=input.getBoundingClientRect(),doc=input.ownerDocument,view=doc.defaultView,x=rect.left+Math.min(35,rect.width/2),y=rect.top+rect.height/2,hit=doc.elementFromPoint(x,y);
+      const input=target.element;if(!payload.measureOnly)input.scrollIntoView({block:'center',inline:'nearest'});const rect=input.getBoundingClientRect(),doc=input.ownerDocument,view=doc.defaultView,x=rect.left+Math.min(35,rect.width/2),y=rect.top+rect.height/2,hit=doc.elementFromPoint(x,y);
       if(hit!==input&&hit?.control!==input)return {ok:false,error:'Upload field is covered'};
       if(view!==window)return {ok:false,error:'Embedded upload needs manual selection'};
       const viewport=window.visualViewport;return {ok:true,safeTarget:true,x:x-(viewport?.offsetLeft||0),y:y-(viewport?.offsetTop||0),viewportWidth:viewport?.width||window.innerWidth,neverSubmitted:true};
