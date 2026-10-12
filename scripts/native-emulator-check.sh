@@ -2,6 +2,9 @@
 set -euo pipefail
 
 mkdir -p native-verification
+# Set the emulator viewport before the test process starts, so Android 9
+# resources and WebView use the same density throughout the suite.
+adb shell wm density 320
 test_result=0
 gradle --no-daemon :app:connectedDebugAndroidTest > native-verification/gradle.log 2>&1 &
 gradle_pid=$!

@@ -11,3 +11,5 @@
 @media(max-width:759px),(max-height:479px){.drawer{top:0;bottom:0;left:0;width:290px;max-width:85vw}}
 @media(max-width:560px){.sheet{width:100%}.legacy-flex .message>.avatar{margin-right:11px}.legacy-flex .topbar-left>*+*,.legacy-flex .topbar-right>*+*{margin-left:7px}.legacy-flex .suggestions>.suggestion{margin:0}.legacy-flex .suggestion>svg{margin-right:6px}.welcome{margin-top:13vh}}
 @media(max-height:640px){.welcome{margin-top:38px}}
+.drawer{overflow-y:auto}.drawer>*{flex-shrink:0}.drawer>.history{flex:1 1 48px}
+@media(max-height:640px){.drawer{padding-top:16px;padding-bottom:10px}.drawer-top{margin-bottom:14px}.new-conversation{padding-top:9px;padding-bottom:9px}.history-search{margin-top:8px;margin-bottom:0;padding-top:6px;padding-bottom:6px}.nav-caption{margin-top:16px;margin-bottom:7px}.nav-item{padding-top:9px;padding-bottom:9px}.drawer>.history{min-height:28px;flex-basis:28px}.drawer-bottom{padding-top:8px}.private-note{display:none}.drawer-account{padding-top:12px}}
