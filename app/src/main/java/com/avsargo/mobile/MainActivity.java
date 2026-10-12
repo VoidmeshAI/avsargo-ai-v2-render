@@ -331,37 +331,32 @@ public final class MainActivity extends Activity {
     private void activateUpload(JSONObject payload,int nav,String url){
         if(!active||!browserShown||!formAiConsent||nav!=navigationId||!url.equals(siteWeb.getUrl())||uploadActivationPending)return;
         uploadActivationPending=true;pendingUploadFieldSignature=nav+":"+payload.optString("fieldId");long token=++uploadActivationId;
-        prepareUploadTouch(payload,nav,url,token,0);
+        prepareFileActivation(payload,nav,url,token,0);
     }
     private boolean uploadContext(int nav,String url,long token){return active&&browserShown&&formAiConsent&&token==uploadActivationId&&nav==navigationId&&url.equals(siteWeb.getUrl());}
-    private void pauseUploadTouch(long token){if(token!=uploadActivationId)return;uploadActivationPending=false;uploadActivationId++;pendingUploadFieldSignature="";pendingUploadLabel="";}
-    private void retryUploadTouch(JSONObject payload,int nav,String url,long token,int attempt){
+    private void pauseFileActivation(long token){if(token!=uploadActivationId)return;uploadActivationPending=false;uploadActivationId++;pendingUploadFieldSignature="";pendingUploadLabel="";}
+    private void retryFileActivation(JSONObject payload,int nav,String url,long token,int attempt){
         if(!uploadContext(nav,url,token))return;
         if(attempt>=2){attemptedUploads.add(pendingUploadFieldSignature);uploadActivationPending=false;pendingUploadFieldSignature="";browserStatus.setText("Tap the portal's document upload field to continue.");return;}
-        handler.postDelayed(()->prepareUploadTouch(payload,nav,url,token,attempt+1),300);
+        handler.postDelayed(()->prepareFileActivation(payload,nav,url,token,attempt+1),300);
     }
-    private void prepareUploadTouch(JSONObject payload,int nav,String url,long token,int attempt){
+    private void prepareFileActivation(JSONObject payload,int nav,String url,long token,int attempt){
         if(!uploadContext(nav,url,token))return;
-        if(!siteWeb.hasWindowFocus()){pauseUploadTouch(token);return;}
+        if(!siteWeb.hasWindowFocus()){pauseFileActivation(token);return;}
+        siteWeb.requestFocus();
         siteWeb.evaluateJavascript("("+helperJs+")(\"scan\",null)",raw->{try{
             if(!uploadContext(nav,url,token))return;payload.put("signature",parseJs(raw).optString("signature")).put("measureOnly",false);
-            siteWeb.evaluateJavascript("("+helperJs+")(\"uploadTarget\","+payload+")",target->{try{
-                if(!uploadContext(nav,url,token))return;JSONObject r=parseJs(target);if(!r.optBoolean("ok")||!r.optBoolean("safeTarget")){retryUploadTouch(payload,nav,url,token,attempt);return;}
-                // A DOM scroll can finish before Chromium has drawn it. Wait for that frame,
-                // then revalidate the same file input before sending a real timed gesture.
-                siteWeb.postVisualStateCallback(token,new WebView.VisualStateCallback(){@Override public void onComplete(long id){
-                    if(!uploadContext(nav,url,token))return;try{payload.put("measureOnly",true);}catch(Exception e){retryUploadTouch(payload,nav,url,token,attempt);return;}
-                    siteWeb.evaluateJavascript("("+helperJs+")(\"uploadTarget\","+payload+")",fresh->{try{
-                        if(!uploadContext(nav,url,token))return;if(!siteWeb.hasWindowFocus()){pauseUploadTouch(token);return;}JSONObject position=parseJs(fresh);if(!position.optBoolean("ok")||!position.optBoolean("safeTarget")){retryUploadTouch(payload,nav,url,token,attempt);return;}
-                        double width=position.optDouble("viewportWidth",0);if(width<=0){retryUploadTouch(payload,nav,url,token,attempt);return;}
-                        float scale=(float)(siteWeb.getWidth()/width),x=(float)position.optDouble("x",-1)*scale,y=(float)position.optDouble("y",-1)*scale;
-                        if(x<0||y<0||x>=siteWeb.getWidth()||y>=siteWeb.getHeight()){retryUploadTouch(payload,nav,url,token,attempt);return;}
-                        siteWeb.requestFocus();long downTime=android.os.SystemClock.uptimeMillis();android.view.MotionEvent down=android.view.MotionEvent.obtain(downTime,downTime,android.view.MotionEvent.ACTION_DOWN,x,y,0);down.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN);try{siteWeb.dispatchTouchEvent(down);}finally{down.recycle();}
-                        handler.postDelayed(()->{boolean valid=uploadContext(nav,url,token)&&siteWeb.hasWindowFocus();android.view.MotionEvent end=android.view.MotionEvent.obtain(downTime,android.os.SystemClock.uptimeMillis(),valid?android.view.MotionEvent.ACTION_UP:android.view.MotionEvent.ACTION_CANCEL,x,y,0);end.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN);try{siteWeb.dispatchTouchEvent(end);}finally{end.recycle();}if(valid)handler.postDelayed(()->retryUploadTouch(payload,nav,url,token,attempt),450);},80);
-                    }catch(Exception e){retryUploadTouch(payload,nav,url,token,attempt);}});
-                }});
-            }catch(Exception e){retryUploadTouch(payload,nav,url,token,attempt);}});
-        }catch(Exception e){retryUploadTouch(payload,nav,url,token,attempt);}});
+            siteWeb.evaluateJavascript("("+helperJs+")(\"uploadFocus\","+payload+")",focused->{try{
+                if(!uploadContext(nav,url,token))return;if(!siteWeb.hasWindowFocus()){pauseFileActivation(token);return;}
+                JSONObject r=parseJs(focused);if(!r.optBoolean("ok")||!r.optBoolean("safeTarget")||!r.optBoolean("focusedFile")){retryFileActivation(payload,nav,url,token,attempt);return;}
+                // Activate the verified file input itself. Space never implicitly submits
+                // a form, and avoids WebView scroll/viewport coordinate races.
+                long time=android.os.SystemClock.uptimeMillis();
+                android.view.KeyEvent down=new android.view.KeyEvent(time,time,android.view.KeyEvent.ACTION_DOWN,android.view.KeyEvent.KEYCODE_SPACE,0),up=new android.view.KeyEvent(time,android.os.SystemClock.uptimeMillis(),android.view.KeyEvent.ACTION_UP,android.view.KeyEvent.KEYCODE_SPACE,0);
+                down.setSource(android.view.InputDevice.SOURCE_KEYBOARD);up.setSource(android.view.InputDevice.SOURCE_KEYBOARD);siteWeb.dispatchKeyEvent(down);siteWeb.dispatchKeyEvent(up);
+                handler.postDelayed(()->retryFileActivation(payload,nav,url,token,attempt),450);
+            }catch(Exception e){retryFileActivation(payload,nav,url,token,attempt);}});
+        }catch(Exception e){retryFileActivation(payload,nav,url,token,attempt);}});
     }
     private Map<String,String> extraLabels(JSONObject meta){Map<String,String> out=new LinkedHashMap<>();for(Iterator<String> it=meta.keys();it.hasNext();){String k=it.next();JSONObject m=meta.optJSONObject(k);if(m!=null)out.put(k,m.optString("label"));}return out;}
     private String profileLabel(String key){JSONObject m=cachedMeta.optJSONObject(key);return m!=null?m.optString("label",ProfileRules.label(key)):ProfileRules.label(key);}
