@@ -122,7 +122,7 @@ public final class MainActivity extends Activity {
                 if(!r.isForMainFrame())return false;String u=r.getUrl().toString();if(allowedUrl(u))return false;warnExternal(u);return true;
             }
             @Override public void onPageStarted(WebView v,String url,android.graphics.Bitmap icon){
-                uploadActivationPending=false;uploadActivationId++;pendingUploadFieldSignature="";
+                uploadActivationPending=false;uploadActivationId++;pendingUploadFieldSignature="";pendingUploadLabel="";
                 navigationId++;scanBusy=false;portalLoading=true;lastPromptSignature="";aiMappingSignature="";lastAiSignature="";aiMappings=new JSONObject();pendingUnknown=new JSONArray();finishUpload(null);attemptedUploads.clear();
                 if(!allowedUrl(url)){v.stopLoading();autoOrigin="";browserStatus.setText("Unsupported page. Assist paused.");return;}
                 currentPortalUrl=url;try{if(vault.automationAllowed())autoOrigin=origin(url);else autoOrigin="";}catch(Exception e){autoOrigin="";}
@@ -334,6 +334,7 @@ public final class MainActivity extends Activity {
         prepareUploadTouch(payload,nav,url,token,0);
     }
     private boolean uploadContext(int nav,String url,long token){return active&&browserShown&&formAiConsent&&token==uploadActivationId&&nav==navigationId&&url.equals(siteWeb.getUrl());}
+    private void pauseUploadTouch(long token){if(token!=uploadActivationId)return;uploadActivationPending=false;uploadActivationId++;pendingUploadFieldSignature="";pendingUploadLabel="";}
     private void retryUploadTouch(JSONObject payload,int nav,String url,long token,int attempt){
         if(!uploadContext(nav,url,token))return;
         if(attempt>=2){attemptedUploads.add(pendingUploadFieldSignature);uploadActivationPending=false;pendingUploadFieldSignature="";browserStatus.setText("Tap the portal's document upload field to continue.");return;}
@@ -341,7 +342,7 @@ public final class MainActivity extends Activity {
     }
     private void prepareUploadTouch(JSONObject payload,int nav,String url,long token,int attempt){
         if(!uploadContext(nav,url,token))return;
-        if(!siteWeb.hasWindowFocus()){retryUploadTouch(payload,nav,url,token,attempt);return;}
+        if(!siteWeb.hasWindowFocus()){pauseUploadTouch(token);return;}
         siteWeb.evaluateJavascript("("+helperJs+")(\"scan\",null)",raw->{try{
             if(!uploadContext(nav,url,token))return;payload.put("signature",parseJs(raw).optString("signature")).put("measureOnly",false);
             siteWeb.evaluateJavascript("("+helperJs+")(\"uploadTarget\","+payload+")",target->{try{
@@ -351,7 +352,7 @@ public final class MainActivity extends Activity {
                 siteWeb.postVisualStateCallback(token,new WebView.VisualStateCallback(){@Override public void onComplete(long id){
                     if(!uploadContext(nav,url,token))return;try{payload.put("measureOnly",true);}catch(Exception e){retryUploadTouch(payload,nav,url,token,attempt);return;}
                     siteWeb.evaluateJavascript("("+helperJs+")(\"uploadTarget\","+payload+")",fresh->{try{
-                        if(!uploadContext(nav,url,token)||!siteWeb.hasWindowFocus())return;JSONObject position=parseJs(fresh);if(!position.optBoolean("ok")||!position.optBoolean("safeTarget")){retryUploadTouch(payload,nav,url,token,attempt);return;}
+                        if(!uploadContext(nav,url,token))return;if(!siteWeb.hasWindowFocus()){pauseUploadTouch(token);return;}JSONObject position=parseJs(fresh);if(!position.optBoolean("ok")||!position.optBoolean("safeTarget")){retryUploadTouch(payload,nav,url,token,attempt);return;}
                         double width=position.optDouble("viewportWidth",0);if(width<=0){retryUploadTouch(payload,nav,url,token,attempt);return;}
                         float scale=(float)(siteWeb.getWidth()/width),x=(float)position.optDouble("x",-1)*scale,y=(float)position.optDouble("y",-1)*scale;
                         if(x<0||y<0||x>=siteWeb.getWidth()||y>=siteWeb.getHeight()){retryUploadTouch(payload,nav,url,token,attempt);return;}
