@@ -21,7 +21,7 @@ public final class DocumentOcr {
  public DocumentOcr(Activity a){activity=a;}
  public void recognize(byte[] bytes,String mime,Listener listener){new Thread(()->{
   File temp=null;TextRecognizer latin=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS),hindi=TextRecognition.getClient(new DevanagariTextRecognizerOptions.Builder().build());
-  StringBuilder text=new StringBuilder();JSONArray images=new JSONArray();int total=1,done=0;boolean truncated=false;
+  StringBuilder text=new StringBuilder();JSONArray images=new JSONArray();int total=1,done=0;boolean truncated=false;JSONObject result=null;
   try{
    if("application/pdf".equals(mime)){temp=File.createTempFile("ocr_",".pdf",activity.getCacheDir());try(FileOutputStream out=new FileOutputStream(temp)){out.write(bytes);}
     try(ParcelFileDescriptor fd=ParcelFileDescriptor.open(temp,ParcelFileDescriptor.MODE_READ_ONLY);PdfRenderer pdf=new PdfRenderer(fd)){total=pdf.getPageCount();if(total<1)throw new IOException("Empty PDF");truncated=total>20;
@@ -32,8 +32,10 @@ public final class DocumentOcr {
    }else{BitmapFactory.Options opt=new BitmapFactory.Options();opt.inJustDecodeBounds=true;BitmapFactory.decodeByteArray(bytes,0,bytes.length,opt);opt.inSampleSize=1;while(Math.max(opt.outWidth,opt.outHeight)/opt.inSampleSize>2400)opt.inSampleSize*=2;opt.inJustDecodeBounds=false;Bitmap bitmap=BitmapFactory.decodeByteArray(bytes,0,bytes.length,opt);if(bitmap==null)throw new IOException("Image could not be read");
     try{try{ExifInterface exif=new ExifInterface(new ByteArrayInputStream(bytes));int o=exif.getAttributeInt(ExifInterface.TAG_ORIENTATION,1);Matrix m=new Matrix();if(o==2||o==4||o==5||o==7)m.postScale(-1,1);if(o==6||o==5)m.postRotate(90);if(o==3||o==4)m.postRotate(180);if(o==8||o==7)m.postRotate(270);if(o!=1){Bitmap b=Bitmap.createBitmap(bitmap,0,0,bitmap.getWidth(),bitmap.getHeight(),m,true);if(b!=bitmap){bitmap.recycle();bitmap=b;}}}catch(Exception ignored){}append(bitmap,1,text,images,latin,hindi);done=1;}finally{bitmap.recycle();}
    }
-   truncated|=text.length()>48000;String raw=text.substring(0,Math.min(48000,text.length()));JSONObject scan=new JSONObject().put("text",raw).put("fields",parseFields(raw)).put("images",images).put("pages",done).put("totalPages",total).put("truncated",truncated);activity.runOnUiThread(()->listener.result(scan));
-  }catch(Exception e){activity.runOnUiThread(()->listener.error("Document scan failed. Use a clear, unlocked PDF or image."));}finally{latin.close();hindi.close();if(temp!=null)temp.delete();}
+   truncated|=text.length()>48000;String raw=text.substring(0,Math.min(48000,text.length()));result=new JSONObject().put("text",raw).put("fields",parseFields(raw)).put("images",images).put("pages",done).put("totalPages",total).put("truncated",truncated);
+  }catch(Exception e){result=null;}finally{latin.close();hindi.close();if(temp!=null&&temp.exists()&&!temp.delete())result=null;}
+  // Publish only after closing the renderer and deleting the plaintext PDF.
+  final JSONObject scan=result;activity.runOnUiThread(()->{if(scan==null)listener.error("Document scan failed. Use a clear, unlocked PDF or image.");else listener.result(scan);});
  },"avsargo-document-scan").start();}
  private static void append(Bitmap bitmap,int page,StringBuilder all,JSONArray images,TextRecognizer latin,TextRecognizer hindi)throws Exception{
   LinkedHashSet<String> lines=new LinkedHashSet<>();boolean success=false;for(TextRecognizer r:new TextRecognizer[]{latin,hindi})try{Text t=Tasks.await(r.process(InputImage.fromBitmap(bitmap,0)),45,TimeUnit.SECONDS);for(Text.TextBlock block:t.getTextBlocks())for(Text.Line line:block.getLines()){String s=line.getText().trim();if(!s.isEmpty())lines.add(s);}success=true;}catch(Exception ignored){}
