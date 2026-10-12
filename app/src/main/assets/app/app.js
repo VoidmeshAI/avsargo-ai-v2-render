@@ -7,6 +7,8 @@
         n.className = cl; if (text !== undefined)
         n.textContent = text; return n; };
     const add = (p, tag, cl, text) => { const n = el(tag, cl, text); p.append(n); return n; };
+    // Android 9's bundled WebView supports append but not replaceChildren.
+    const replace = (p, ...items) => { p.textContent = ''; p.append(...items); };
     const icon = (id) => { const n = document.createElementNS('http://www.w3.org/2000/svg', 'svg'), u = document.createElementNS('http://www.w3.org/2000/svg', 'use'); u.setAttribute('href', '#i-' + id); n.append(u); return n; };
     const fixed = window.AvsarGoFields || [], catalog = [{ id: 'udyam', name: 'Udyam / MSME registration', url: 'https://udyamregistration.gov.in/UdyamRegistration.aspx', match: /udyam|udhyam|udyog|udhyog|msme|उद्यम|उद्योग/i }, { id: 'pan', name: 'PAN application', url: 'https://onlineservices.proteantech.in/paam/endUserRegisterContact.html', match: /\bpan\b|पैन/i }, { id: 'ssc', name: 'SSC examination', url: 'https://ssc.gov.in/', match: /ssc|cgl|chsl/i }, { id: 'dl', name: 'Driving licence', url: 'https://sarathi.parivahan.gov.in/', match: /driving|licen[cs]e|ड्राइविंग/i }];
     let state = { profile: {}, profileMeta: {}, documents: [], application: {}, ai: {}, server: {}, account: {}, workspace: {} }, chats = [], activeId = '', messages = [], application = null, awaiting = false, importing = false, analysing = false, resolving = false, addedDuringImport = false, pendingNode = null, requestId = '', afterPermission = null, openAfterReview = false, saveTimer = null, modalKind = '';
@@ -39,9 +41,9 @@
         $('scrim').classList.remove('visible');
         return;
     } $('drawer').classList.toggle('open', open); $('drawer').setAttribute('aria-hidden', String(!open)); $('scrim').classList.toggle('visible', open); }
-    function closeSheet() { modalKind = ''; $('modal').hidden = true; $('sheetBody').replaceChildren(); $('sheetActions').replaceChildren(); }
+    function closeSheet() { modalKind = ''; $('modal').hidden = true; replace($('sheetBody')); replace($('sheetActions')); }
     function button(text, fn, primary = false) { const b = el('button', 'chip-action' + (primary ? ' primary' : ''), text); b.onclick = fn; return b; }
-    function sheet(title, body, actions = [], kind = '') { menu(false); modalKind = kind; $('sheetTitle').textContent = title; $('sheetEyebrow').textContent = kind === 'review' ? 'REVIEW YOUR DETAILS' : 'YOUR WORKSPACE'; $('sheetBody').replaceChildren(body); $('sheetActions').replaceChildren(); for (const a of actions) {
+    function sheet(title, body, actions = [], kind = '') { menu(false); modalKind = kind; $('sheetTitle').textContent = title; $('sheetEyebrow').textContent = kind === 'review' ? 'REVIEW YOUR DETAILS' : 'YOUR WORKSPACE'; replace($('sheetBody'), body); replace($('sheetActions')); for (const a of actions) {
         const b = el('button', 'btn' + (a.primary ? ' primary' : ''), a.text);
         b.onclick = a.action;
         $('sheetActions').append(b);
@@ -52,7 +54,7 @@
         c.messages = messages.slice(-40);
         c.application = application;
     } native.saveWorkspace(JSON.stringify({ chats: chats.slice(-20), activeId, messages: messages.slice(-40), application, draft: $('chatInput').value.slice(0, 4000) })); history(); }, 120); }
-    function history() { const query = ($('historySearch').value || '').toLowerCase().trim(); $('history').replaceChildren(); const visible = [...chats].reverse().filter(c => !query || (c.title || '').toLowerCase().includes(query) || (c.messages || []).some(m => m.text.toLowerCase().includes(query))); if (!visible.length) {
+    function history() { const query = ($('historySearch').value || '').toLowerCase().trim(); replace($('history')); const visible = [...chats].reverse().filter(c => !query || (c.title || '').toLowerCase().includes(query) || (c.messages || []).some(m => m.text.toLowerCase().includes(query))); if (!visible.length) {
         add($('history'), 'div', 'history-empty', query ? 'No matching conversations.' : 'Your conversations will appear here.');
         return;
     } for (const c of visible) {
@@ -81,7 +83,7 @@
             previous.messages = [...messages];
             previous.application = application;
         }
-    } activeId = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); messages = []; application = null; chats.push({ id: activeId, title: 'New conversation', messages: [] }); chats = chats.slice(-20); $('messages').replaceChildren(); $('welcome').hidden = false; menu(false); workflow(); history(); persist(); syncChrome(); }
+    } activeId = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); messages = []; application = null; chats.push({ id: activeId, title: 'New conversation', messages: [] }); chats = chats.slice(-20); replace($('messages')); $('welcome').hidden = false; menu(false); workflow(); history(); persist(); syncChrome(); }
     function switchChat(id) { if (awaiting || importing || analysing || resolving)
         return toast('Let the current task finish first.'); const current = chats.find(c => c.id === activeId); if (current) {
         current.messages = messages;
@@ -149,14 +151,14 @@
     } $('messages').append(n); syncChrome(); return n; }
     function message(role, text, extra = {}) { const m = { role, text, cloud: role === 'user', ...extra }; messages.push(m); messages = messages.slice(-40); const c = chats.find(c => c.id === activeId); if (c && role === 'user' && c.title === 'New conversation')
         c.title = text.slice(0, 48); const n = renderMessage(m); persist(); requestAnimationFrame(() => $('chatScroll').scrollTo({ top: $('chatScroll').scrollHeight, behavior: 'smooth' })); return n; }
-    function renderMessages() { $('messages').replaceChildren(); $('welcome').hidden = messages.length > 0; for (const m of messages)
+    function renderMessages() { replace($('messages')); $('welcome').hidden = messages.length > 0; for (const m of messages)
         renderMessage(m); syncChrome(); }
     function formCard(parent, a) { const card = add(parent, 'div', 'form-card'); add(card, 'div', 'card-overline', 'OFFICIAL APPLICATION'); add(card, 'h3', '', a.name); let host = ''; try {
         host = new URL(a.url).hostname;
     }
     catch (_a) { } add(card, 'div', 'form-domain', '✓ ' + host); add(card, 'p', '', 'Your reviewed details will fill matching blank fields. Complete OTP and final submission on the portal.'); const row = add(card, 'div', 'action-inline'); row.append(button('Open & autofill ↗', () => launchApplication(a), true), button('Prepare documents', uploadDocuments)); }
     function workflow() { var _a; const status = ((_a = state.application) === null || _a === void 0 ? void 0 : _a.status) || 'none', has = Object.keys(state.profile || {}).length > 0; $('progressPill').hidden = !application && !importing && !analysing; if ($('progressPill').hidden)
-        return; $('progressText').textContent = importing ? 'Scanning every page…' : analysing ? 'Reading text + document images…' : (application === null || application === void 0 ? void 0 : application.name) || 'Prepare your application'; const index = importing ? 0 : analysing ? 1 : status === 'analysed' ? 2 : has ? 3 : state.documents.length ? 1 : 0; $('workflowSteps').replaceChildren(); ['Documents', 'Extract', 'Review', 'Autofill'].forEach((text, i) => { if (i)
+        return; $('progressText').textContent = importing ? 'Scanning every page…' : analysing ? 'Reading text + document images…' : (application === null || application === void 0 ? void 0 : application.name) || 'Prepare your application'; const index = importing ? 0 : analysing ? 1 : status === 'analysed' ? 2 : has ? 3 : state.documents.length ? 1 : 0; replace($('workflowSteps')); ['Documents', 'Extract', 'Review', 'Autofill'].forEach((text, i) => { if (i)
         add($('workflowSteps'), 'span', 'workflow-line'); const step = add($('workflowSteps'), 'span', 'workflow-step' + (i < index ? ' done' : i === index ? ' current' : '')); add(step, 'span', 'step-number', i < index ? '✓' : String(i + 1)); add(step, 'span', '', text); }); $('progressAction').textContent = importing || analysing ? 'In progress' : status === 'analysed' ? 'Review ↗' : has && application ? 'Open ↗' : 'Continue ↗'; $('progressAction').onclick = () => { if (importing || analysing)
         return; status === 'analysed' ? reviewProfile(true) : has && application ? launchApplication() : documentsPanel(); }; }
     function grow() { const i = $('chatInput'); i.style.height = 'auto'; i.style.height = Math.min(135, i.scrollHeight) + 'px'; $('send').classList.toggle('empty', !i.value.trim()); }
@@ -552,4 +554,12 @@
     grow();
     syncChrome();
     (_c = native === null || native === void 0 ? void 0 : native.fetchConfig) === null || _c === void 0 ? void 0 : _c.call(native);
+    // CSS gap was available for grid before flex. Measure flex, instead of
+    // assuming CSS.supports('gap') proves that this WebView can space flex rows.
+    const spacingProbe = el('div');
+    spacingProbe.style.cssText = 'position:absolute;visibility:hidden;display:flex;flex-direction:column;row-gap:1px';
+    spacingProbe.append(el('div'), el('div'));
+    document.body.append(spacingProbe);
+    document.body.classList.toggle('legacy-flex', spacingProbe.scrollHeight !== 1);
+    spacingProbe.remove();
 })();

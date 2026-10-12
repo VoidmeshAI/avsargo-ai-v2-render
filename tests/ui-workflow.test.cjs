@@ -10,7 +10,6 @@ class Element{
  get textContent(){return this._text+this.children.map(x=>x.textContent).join('');}set textContent(s){this._text=String(s);this.children=[];}
  get lastElementChild(){return this.children.at(-1)||null;}
  append(...items){for(const item of items){item.parent=this;this.children.push(item);}}
- replaceChildren(...items){this.children=[];this._text='';this.append(...items);}
  remove(){if(this.parent)this.parent.children=this.parent.children.filter(x=>x!==this);}
  setAttribute(name,value){this.attributes[name]=value;}addEventListener(name,cb){this.listeners[name]=cb;}scrollTo(){}
  all(){return [this,...this.children.flatMap(x=>x.all())];}

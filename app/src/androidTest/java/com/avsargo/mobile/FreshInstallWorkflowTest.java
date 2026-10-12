@@ -24,7 +24,7 @@ public final class FreshInstallWorkflowTest {
  private String js(String expression)throws Exception{Field f=MainActivity.class.getDeclaredField("appWeb");f.setAccessible(true);WebView web=(WebView)f.get(activity);AtomicReference<String> output=new AtomicReference<>();CountDownLatch latch=new CountDownLatch(1);InstrumentationRegistry.getInstrumentation().runOnMainSync(()->web.evaluateJavascript(expression,s->{output.set(s);latch.countDown();}));assertTrue(latch.await(15,TimeUnit.SECONDS));return output.get();}
  private void waitFor(String expression)throws Exception{long until=System.currentTimeMillis()+90000;while(System.currentTimeMillis()<until){if("true".equals(js(expression)))return;Thread.sleep(200);}fail("Fresh-install timeout: "+expression);}
  @Test public void firstMessageReachesSavedProviderWithoutEnablingChat()throws Exception{
-  activity=rule.launchActivity(null);waitFor("!!window.AvsarGoEvent");
+  activity=rule.launchActivity(null);waitFor("!!window.AvsarGoEvent&&document.getElementById('history').children.length>0");
   assertEquals("false",js("/Enable chat|Start chatting with AvsarGo|Chat is paused/.test(document.body.innerText)"));
   js("document.getElementById('chatInput').value='Reply with exactly AVSAR_READY';document.getElementById('send').click()");
   waitFor("document.querySelector('.message.assistant:not(.typing) .msg-body')&&document.querySelector('.message.assistant:not(.typing) .msg-body').innerText.indexOf('AVSAR_READY')>=0");
@@ -35,6 +35,19 @@ public final class FreshInstallWorkflowTest {
   assertTrue("First conversation is persisted",new SecureVault(context).workspace().toString().contains("AVSAR_READY"));
   assertFalse(vault.deviceToken().isEmpty());
   File dir=new File(context.getExternalFilesDir(null),"verification");dir.mkdirs();UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).takeScreenshot(new File(dir,"native-fresh-chat.png"));
+ }
+ @Test public void freshLandscapeShowsSidebarAndWorkingCustomerSheets()throws Exception{
+  UiDevice device=UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());device.executeShellCommand("wm density 320");device.setOrientationLeft();
+  try{
+   activity=rule.launchActivity(null);waitFor("!!window.AvsarGoEvent&&document.getElementById('history').children.length>0&&window.innerWidth>=760");
+   assertEquals("true",js("document.getElementById('drawer').getBoundingClientRect().left>=0&&document.getElementById('drawer').getBoundingClientRect().width>=200&&document.body.scrollWidth<=window.innerWidth"));
+   assertEquals("false",js("/Enable chat|Start chatting with AvsarGo|Settings & admin/.test(document.body.innerText)"));
+   File dir=new File(context.getExternalFilesDir(null),"verification");dir.mkdirs();device.takeScreenshot(new File(dir,"native-landscape-home.png"));
+   js("document.getElementById('headerDocs').click()");waitFor("!document.getElementById('modal').hidden&&document.getElementById('sheetTitle').innerText==='Your documents'");
+   js("document.getElementById('closeSheet').click();document.getElementById('openPreferences').click()");waitFor("!document.getElementById('modal').hidden&&document.getElementById('sheetTitle').innerText==='Preferences & privacy'");
+   assertEquals("false",js("/AI chat|Enable chat/.test(document.getElementById('sheetBody').innerText)"));
+   device.takeScreenshot(new File(dir,"native-landscape-preferences.png"));
+  }finally{device.setOrientationNatural();device.unfreezeRotation();device.executeShellCommand("wm density reset");}
  }
  @Test public void preferencesProfileAndSessionRoundTripAcrossInstances()throws Exception{
   vault.saveAiSettings(new JSONObject().put("automationConsent",true).put("permissionsVersion",1));
