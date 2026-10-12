@@ -1,8 +1,8 @@
-name: Verify V15 native OCR and advanced autofill
+name: Verify V16 fresh chat, storage, OCR and autofill
 on:
   workflow_dispatch:
   push:
-    branches: ['android/v15-advanced-assistant']
+    branches: ['android/v16-direct-chat-premium']
     paths: ['app/**', 'scripts/native-emulator-check.sh', '.github/workflows/android-native-check.yml']
 permissions:
   contents: read
@@ -10,6 +10,10 @@ jobs:
   native:
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [28, 35]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -26,7 +30,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
       - uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: ${{ matrix.api }}
           arch: x86_64
           target: google_apis
           profile: pixel_2
@@ -36,7 +40,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: AvsarGo-V15-Native-Verification
+          name: AvsarGo-V16-Native-Verification-API${{ matrix.api }}
           path: |
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/

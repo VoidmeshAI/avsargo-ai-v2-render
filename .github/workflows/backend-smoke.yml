@@ -2,7 +2,7 @@ name: Verify live AvsarGo admin
 on:
   workflow_dispatch:
   push:
-    branches: ['android/v15-advanced-assistant']
+    branches: ['android/v16-direct-chat-premium']
     paths: ['server/**', 'scripts/live-backend-check.mjs', 'scripts/live-ai-check.mjs', '.github/workflows/backend-smoke.yml']
 permissions:
   contents: read
@@ -23,6 +23,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: AvsarGo-V15-Live-Verification
+          name: AvsarGo-V16-Live-Verification
           path: visual-checks/v15-live-results.json
           retention-days: 14

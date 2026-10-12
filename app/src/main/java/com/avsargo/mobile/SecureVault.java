@@ -4,6 +4,7 @@ import android.content.Context;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.util.Base64;
+import android.util.AtomicFile;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -19,10 +20,12 @@ import javax.crypto.spec.GCMParameterSpec;
 /** Android Keystore-backed AES-GCM. Atomic app-private storage; compatible with V11 vault files. */
 public final class SecureVault {
     private static final String KEY_ALIAS = "avsargo_android_v11_local_aes";
+    private static final Object STORE_LOCK = new Object();
     private final Context ctx;
     public SecureVault(Context c) { this.ctx = c.getApplicationContext(); }
 
     private SecretKey key() throws Exception {
+        synchronized(STORE_LOCK){
         KeyStore store = KeyStore.getInstance("AndroidKeyStore"); store.load(null);
         if (!store.containsAlias(KEY_ALIAS)) {
             KeyGenerator generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
@@ -33,7 +36,10 @@ public final class SecureVault {
                 .setKeySize(256).setRandomizedEncryptionRequired(true).build());
             generator.generateKey();
         }
-        return (SecretKey) store.getKey(KEY_ALIAS, null);
+        java.security.Key existing=store.getKey(KEY_ALIAS, null);
+        if(!(existing instanceof SecretKey))throw new IOException("Private encryption key unavailable");
+        return (SecretKey) existing;
+        }
     }
 
     public byte[] seal(byte[] source) throws Exception {
@@ -54,14 +60,17 @@ public final class SecureVault {
     }
     private File file(String filename) { return new File(ctx.getFilesDir(), filename); }
     private synchronized void writeEncrypted(String filename, byte[] data) throws Exception {
-        File temp = file(filename + ".pending");
-        try (FileOutputStream out = new FileOutputStream(temp)) { out.write(seal(data)); out.getFD().sync(); }
-        File dest = file(filename);
-        if (!temp.renameTo(dest)) { temp.delete(); throw new IOException("Secure write failed"); }
+        synchronized(STORE_LOCK){
+            byte[] encrypted=seal(data);AtomicFile atomic=new AtomicFile(file(filename));FileOutputStream out=null;
+            try{out=atomic.startWrite();out.write(encrypted);atomic.finishWrite(out);}
+            catch(Exception e){if(out!=null)atomic.failWrite(out);android.util.Log.e("AvsarGoStorage","Encrypted write failed: "+e.getClass().getSimpleName());throw e;}
+        }
     }
     private byte[] readEncrypted(String filename) throws Exception {
-        File f = file(filename); if (!f.exists()) return null;
-        try (FileInputStream in = new FileInputStream(f)) { return unseal(readLimited(in, 18*1024*1024)); }
+        synchronized(STORE_LOCK){
+            File f=file(filename);if(!f.exists()&&!file(filename+".bak").exists())return null;
+            try(FileInputStream in=new AtomicFile(f).openRead()){return unseal(readLimited(in,18*1024*1024));}
+        }
     }
     public synchronized void saveProfile(JSONObject profile) throws Exception {
         // Profile contains only user-reviewed form fields, including document identifiers, never login/payment credentials.
@@ -158,13 +167,15 @@ public final class SecureVault {
     public synchronized void setDeviceToken(String value) throws Exception {writeEncrypted("backend-session.sec",value.getBytes(StandardCharsets.UTF_8));}
     public synchronized String deviceToken() throws Exception {byte[] value=readEncrypted("backend-session.sec");return value==null?"":new String(value,StandardCharsets.UTF_8);}
     public synchronized void eraseAll() throws Exception {
+        synchronized(STORE_LOCK){
         // Deletion must also work when the metadata index is corrupt.
         File[] files=ctx.getFilesDir().listFiles();
         if(files!=null)for(File f:files){
-            String n=f.getName();if(n.equals("application.sec")||n.equals("profile.sec")||n.equals("profile-meta.sec")||n.equals("documents.sec")||n.equals("gemini.sec")||n.equals("workspace.sec")||n.equals("ai-settings.sec")||n.startsWith("backend-")||n.startsWith("doc_")||n.endsWith(".pending"))
+            String n=f.getName().replaceAll("\\.(bak|new)$","");if(n.equals("application.sec")||n.equals("profile.sec")||n.equals("profile-meta.sec")||n.equals("documents.sec")||n.equals("gemini.sec")||n.equals("workspace.sec")||n.equals("ai-settings.sec")||n.startsWith("backend-")||n.startsWith("doc_")||n.endsWith(".pending"))
                 if(f.exists()&&!f.delete())throw new IOException("Could not delete saved data");
         }
         KeyStore store=KeyStore.getInstance("AndroidKeyStore");store.load(null);if(store.containsAlias(KEY_ALIAS))store.deleteEntry(KEY_ALIAS);
+        }
     }
     public static byte[] readLimited(InputStream in, int limit) throws IOException {
         ByteArrayOutputStream output=new ByteArrayOutputStream();byte[] chunk=new byte[16384];int count;

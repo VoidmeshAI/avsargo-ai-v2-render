@@ -12,5 +12,5 @@ while kill -0 "$gradle_pid" 2>/dev/null; do
 done
 wait "$gradle_pid" || test_result=$?
 cat native-verification/gradle.log
-adb logcat -d -s chromium > native-verification/chromium.log
+adb logcat -d -s chromium AvsarGoStorage > native-verification/chromium.log
 exit "$test_result"
