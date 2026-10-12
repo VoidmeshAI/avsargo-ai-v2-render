@@ -1,5 +1,6 @@
 import {randomBytes,createHash,createHmac,timingSafeEqual,scryptSync} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
+import {isIP} from 'node:net';
 import {createProviderClient,generateReply,generateSearchReply,testSavedProvider} from './ai-provider.mjs';
 import {documentsInput,documentPrompt,documentSchema,parseDocumentResult,mappingInput,mappingPrompt,mappingSchema,mappingSchemaFor,parseMappingResult,workflowContext} from './application-ai.mjs';
 
@@ -57,7 +58,9 @@ export async function createApp({store,setupHash,setupExpires=Date.now()+8640000
   function audit(s,action){s.audit.unshift({at:new Date(clock()).toISOString(),action});s.audit=s.audit.slice(0,100);}
   const date=()=>new Date(clock()).toISOString().slice(0,10);
   function limit(key,count,period=60000){const now=clock();let r=rates.get(key);if(!r||now-r.at>=period){r={at:now,count:0};rates.set(key,r);}if(++r.count>count)fail(429,'Too many requests. Please try later.');if(rates.size>10000)for(const[k,v]of rates)if(now-v.at>86400000)rates.delete(k);}
-  const ip=req=>hash(ipSalt+'|'+(req.headers.get('x-forwarded-for')?.split(',').at(-1)?.trim()||'local'));
+  // Railway's public edge supplies the real client in X-Real-IP. A missing
+  // X-Forwarded-For previously put unrelated installations in one quota bucket.
+  const ip=req=>{const real=req.headers.get('x-real-ip')?.trim()||'',forwarded=req.headers.get('x-forwarded-for')?.split(',').at(-1)?.trim()||'';return hash(ipSalt+'|'+(isIP(real)?real:isIP(forwarded)?forwarded:'local'));};
   const json=(data,status=200,extra={})=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json;charset=utf-8','cache-control':'no-store',...extra}});
   async function body(req){const raw=await req.text();if(Buffer.byteLength(raw)>5000000)fail(413,'Request is too large');try{return JSON.parse(raw);}catch{fail(400,'Invalid JSON');}}
   function sameOrigin(req){if(req.headers.get('origin')!==origin)fail(403,'Request origin rejected');}
