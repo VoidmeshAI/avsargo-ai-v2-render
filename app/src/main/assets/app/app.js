@@ -139,11 +139,6 @@
     }
     else if (m.application) {
         formCard(body, m.application);
-    }
-    else if (m.role === 'assistant' && m.cloud) {
-        const row = add(body, 'div', 'message-tools');
-        const b = add(row, 'button', '', 'Copy');
-        b.onclick = () => { var _a; (_a = native === null || native === void 0 ? void 0 : native.copyText) === null || _a === void 0 ? void 0 : _a.call(native, m.text); toast('Response copied'); };
     } if (m.actions) {
         const row = add(body, 'div', 'action-inline');
         for (const a of m.actions)

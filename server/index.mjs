@@ -9,7 +9,8 @@ if(!origin.startsWith('https://'))throw new Error('PUBLIC_ORIGIN must be HTTPS')
 const directory=process.env.DATA_DIR||'/data';
 if(!process.env.DATABASE_URL)mkdirSync(directory,{recursive:true,mode:0o700});
 const store=process.env.DATABASE_URL?await postgresStore(process.env.DATABASE_URL,key):sqliteStore(directory+'/avsargo-control.db',key);
-const app=await createApp({store,origin,setupHash:process.env.ADMIN_SETUP_HASH,setupExpires:Number(process.env.ADMIN_SETUP_EXPIRES_AT),ipSalt:process.env.CONFIG_ENCRYPTION_KEY,report:details=>console.log(JSON.stringify(details))});
+const customerOrigins=(process.env.CUSTOMER_WEB_ORIGIN||'').split(',').map(s=>s.trim()).filter(Boolean);
+const app=await createApp({store,origin,customerOrigins,setupHash:process.env.ADMIN_SETUP_HASH,setupExpires:Number(process.env.ADMIN_SETUP_EXPIRES_AT),ipSalt:process.env.CONFIG_ENCRYPTION_KEY,report:details=>console.log(JSON.stringify(details))});
 const server=http.createServer(async(req,res)=>{
   try{
     const pathname=new URL(req.url,origin).pathname;
