@@ -1,10 +1,11 @@
 import http from 'node:http';
-import {chromium} from 'playwright';
+import {chromium,firefox} from 'playwright';
 import {BrowserSessions,authorised} from './engine.mjs';
 import {selfTest} from './self-test.mjs';
 export async function startBrowserService(token){
 if(token.length<40)throw Error('Browser service token is required');
-const engine=new BrowserSessions(chromium,{max:1});
+const browserLauncher={async launch(options){try{return await chromium.launch(options);}catch(error){console.error('Chromium launch unavailable:',error.message.split('\n').filter(line=>/sandbox|Permission|denied|FATAL|namespace/i.test(line)).map(line=>line.slice(0,250)).slice(-4).join(' '));return firefox.launch({headless:true});}}};
+const engine=new BrowserSessions(browserLauncher,{max:1});
 let ready=false,result,failed=false;
 const server=http.createServer(async(req,res)=>{
  const answer=(status,data)=>{res.writeHead(status,{'content-type':'application/json','cache-control':'no-store','x-content-type-options':'nosniff'});res.end(JSON.stringify(data));};
