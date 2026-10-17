@@ -44,7 +44,7 @@ export class BrowserSessions{
  async action(owner,id,input){
   await this.run(owner,id,async s=>{const page=s.page;switch(input.action){
    case 'click':{const x=Number(input.x),y=Number(input.y);if(!Number.isFinite(x)||!Number.isFinite(y)||x<0||y<0||x>s.width||y>s.height)fail(400,'Invalid pointer');await page.mouse.click(x,y);break;}
-   case 'scroll':{const dy=Math.max(-1500,Math.min(1500,Number(input.dy)||0));await page.mouse.wheel(0,dy);break;}
+   case 'scroll':{const dy=Math.max(-1500,Math.min(1500,Number(input.dy)||0)),dx=Math.max(-1500,Math.min(1500,Number(input.dx)||0));await page.mouse.wheel(dx,dy);break;}
    case 'text':{if(typeof input.text!=='string'||input.text.length>2000)fail(400,'Keep this entry shorter.');await page.keyboard.insertText(input.text);break;}
    case 'key':{if(!['Enter','Tab','Backspace','Escape','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','ControlOrMeta+A'].includes(input.key))fail(400,'Unsupported key');await page.keyboard.press(input.key);break;}
    case 'select':{if(typeof input.value!=='string'||input.value.length>300)fail(400,'Invalid option');await page.locator('select:focus').selectOption(input.value);break;}
