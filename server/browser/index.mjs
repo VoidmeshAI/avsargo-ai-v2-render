@@ -20,7 +20,7 @@ const server=http.createServer(async(req,res)=>{
   let data;try{data=JSON.parse(Buffer.concat(parts).toString());}catch{throw Object.assign(Error('Invalid request'),{status:400});}
   if(!/^[a-f0-9]{64}$/.test(data.owner||''))throw Object.assign(Error('Invalid workspace'),{status:400});
   let output;switch(req.url){case '/v1/start':output=await engine.start(data.owner,data);break;case '/v1/frame':output=await engine.frame(data.owner,data.sessionId);break;case '/v1/action':output=await engine.action(data.owner,data.sessionId,data);break;case '/v1/upload':output=await engine.upload(data.owner,data.sessionId,data);break;case '/v1/close':output=await engine.close(data.owner,data.sessionId);break;default:throw Object.assign(Error('Not found'),{status:404});}answer(200,output);
- }catch(e){answer(e.status||503,{error:e.status?e.message:'The form is still loading or unavailable. Please try again.'});}
+ }catch(e){if(!e.status)console.error(JSON.stringify({event:'browser_operation_error',operation:req.url,kind:e.name,message:String(e.message||'').replace(/https?:\/\/\S+/g,'[url]').split('\n')[0].slice(0,250)}));answer(e.status||503,{error:e.status?e.message:'The form is still loading or unavailable. Please try again.'});}
 });
 server.requestTimeout=90000;server.headersTimeout=15000;
 await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(3001,'127.0.0.1',resolve);});
