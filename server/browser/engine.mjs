@@ -5,7 +5,7 @@ const agentSource=readFileSync(new URL('./form-agent.js',import.meta.url),'utf8'
 const evaluateAgent=new Function('data','return ('+agentSource+')(data.mode,data.payload);');
 const fail=(status,message)=>{throw Object.assign(Error(message),{status});};
 export class BrowserSessions{
- constructor(chromium,{max=2,idleMs=180000,lifetimeMs=1800000,clock=Date.now}={}){Object.assign(this,{chromium,max,idleMs,lifetimeMs,clock});this.sessions=new Map();this.pending=0;this.cleanup=setInterval(()=>this.expire(),30000);this.cleanup.unref();}
+ constructor(chromium,{max=2,idleMs=180000,lifetimeMs=1800000,clock=Date.now}={}){Object.assign(this,{chromium,max,idleMs,lifetimeMs,clock});this.sessions=new Map();this.starting=new Set();this.pending=0;this.cleanup=setInterval(()=>this.expire(),30000);this.cleanup.unref();}
  async expire(){const now=this.clock();for(const s of this.sessions.values())if(now-s.touched>this.idleMs||now-s.created>this.lifetimeMs)await this.destroy(s);}
  async destroy(s){this.sessions.delete(s.id);s.profile=null;s.documents=[];await s.browser.close().catch(()=>{});}
  get(owner,id){const s=this.sessions.get(id);if(!s||s.owner!==owner)fail(404,'Application session ended. Reopen your form.');if(this.clock()-s.touched>this.idleMs||this.clock()-s.created>this.lifetimeMs){this.destroy(s);fail(410,'Application session expired. Reopen your form.');}s.touched=this.clock();return s;}
@@ -13,9 +13,10 @@ export class BrowserSessions{
  async start(owner,input,{fixture}={}){
   if(!/^[a-f0-9]{64}$/.test(owner))fail(400,'Invalid workspace');
   if(!fixture&&!official(input.url))fail(400,'Choose a verified official application.');
+  if(this.starting.has(owner))fail(409,'Your application is already opening.');
   const existing=[...this.sessions.values()].find(s=>s.owner===owner);if(existing)await this.destroy(existing);
   await this.expire();if(this.sessions.size+this.pending>=this.max)fail(503,'Application browsers are busy. Please try again shortly.');
-  this.pending++;let browser,s;
+  this.pending++;this.starting.add(owner);let browser,s;
   try{
    browser=await this.chromium.launch({headless:true,chromiumSandbox:true,args:['--disable-dev-shm-usage','--disable-background-networking','--disable-extensions','--disable-component-update']});
    const width=Math.max(360,Math.min(1440,Number(input.width)||1040)),height=Math.max(500,Math.min(1000,Number(input.height)||760));
@@ -28,7 +29,7 @@ export class BrowserSessions{
    context.on('page',p=>{p.on('dialog',dialog=>dialog.dismiss().catch(()=>{}));if(p!==s.page)s.page=p;});page.on('dialog',dialog=>dialog.dismiss().catch(()=>{}));
    await page.goto(fixture?'https://avsargo-selfcheck.invalid/':input.url,{waitUntil:'domcontentloaded'}).catch(e=>{if(page.url()==='about:blank')throw e;});
    this.sessions.set(s.id,s);return await this.frame(owner,s.id);
-  }catch(e){if(!browser)console.error('Browser engine launch failed:',e.message.slice(0,1500));if(s)this.sessions.delete(s.id);await browser?.close().catch(()=>{});if(e.status)throw e;fail(503,'The application browser could not start. Please try again.');}finally{this.pending--;}
+  }catch(e){if(!browser)console.error('Browser engine launch failed:',e.message.slice(0,1500));if(s)this.sessions.delete(s.id);await browser?.close().catch(()=>{});if(e.status)throw e;fail(503,'The application browser could not start. Please try again.');}finally{this.pending--;this.starting.delete(owner);}
  }
  async scan(s){if(s.page.isClosed())fail(410,'This application window has closed. Reopen your form.');return s.page.evaluate(evaluateAgent,{mode:'scan'});}
  async tick(s){
@@ -59,7 +60,8 @@ export class BrowserSessions{
   }});return this.frame(owner,id);
  }
  async upload(owner,id,input){await this.run(owner,id,async s=>{
-  if(!s.enabled)fail(403,'Autofill is paused.');const scan=await this.scan(s);if(scan.signature!==input.signature)fail(409,'The form step changed.');const upload=scan.uploads.find(u=>u.fieldId===input.fieldId),file=s.documents.find(d=>d.id===input.documentId);if(!upload||!file||!fileMatches(file,upload,s.documents,scan.uploads))fail(400,'Choose one matching saved document.');
+  if(!s.enabled)fail(403,'Autofill is paused.');const scan=await this.scan(s);if(scan.signature!==input.signature)fail(409,'The form step changed.');const upload=scan.uploads.find(u=>u.fieldId===input.fieldId),file=s.documents.find(d=>d.id===input.documentId);if(!upload||!file||input.manual!==true&&!fileMatches(file,upload,s.documents,scan.uploads))fail(400,'Choose one matching saved document.');
+  if(input.manual===true&&upload.accept&&!upload.accept.split(',').some(a=>{a=a.trim().toLowerCase();return a===file.mime||a==='image/*'&&file.mime.startsWith('image/')||a.startsWith('.')&&file.name.toLowerCase().endsWith(a);}))fail(400,'Choose a document type accepted by this upload field.');
   if(typeof input.data!=='string'||input.data.length>11200000||!/^[-A-Za-z0-9+/]+={0,2}$/.test(input.data))fail(413,'Document exceeds the upload limit.');const bytes=Buffer.from(input.data,'base64');if(bytes.length>8*1024*1024||!bytes.length)fail(413,'Document exceeds the upload limit.');
   const magic=file.mime==='application/pdf'?bytes.subarray(0,5).toString()==='%PDF-':file.mime==='image/jpeg'?bytes[0]===255&&bytes[1]===216:file.mime==='image/png'&&bytes[0]===137&&bytes[1]===80;if(!magic)fail(400,'Saved document content is invalid.');
   const check=await s.page.evaluate(evaluateAgent,{mode:'uploadFocus',payload:{signature:scan.signature,fieldId:input.fieldId}});if(!check.ok||!check.focusedFile)fail(409,'Upload field is not available on this step.');await s.page.locator('input[type=file]:focus').setInputFiles({name:file.name,mimeType:file.mime,buffer:bytes});s.attachedCount++;
