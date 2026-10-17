@@ -29,7 +29,7 @@ export class BrowserSessions{
    context.on('page',p=>{p.on('dialog',dialog=>dialog.dismiss().catch(()=>{}));if(p!==s.page)s.page=p;});page.on('dialog',dialog=>dialog.dismiss().catch(()=>{}));
    await page.goto(fixture?'https://avsargo-selfcheck.invalid/':input.url,{waitUntil:'domcontentloaded'}).catch(e=>{if(page.url()==='about:blank')throw e;});
    this.sessions.set(s.id,s);return await this.frame(owner,s.id);
-  }catch(e){if(!browser)console.error('Browser engine launch failed:',e.message.slice(0,1500));if(s)this.sessions.delete(s.id);await browser?.close().catch(()=>{});if(e.status)throw e;fail(503,'The application browser could not start. Please try again.');}finally{this.pending--;this.starting.delete(owner);}
+  }catch(e){console.error(JSON.stringify({event:'browser_start_error',kind:e.name,message:String(e.message||'').replace(/https?:\/\/\S+/g,'[url]').split('\n')[0].slice(0,250)}));if(s)this.sessions.delete(s.id);await browser?.close().catch(()=>{});if(e.status)throw e;fail(503,'The application browser could not start. Please try again.');}finally{this.pending--;this.starting.delete(owner);}
  }
  async scan(s){if(s.page.isClosed())fail(410,'This application window has closed. Reopen your form.');return s.page.evaluate(evaluateAgent,{mode:'scan'});}
  async tick(s){
