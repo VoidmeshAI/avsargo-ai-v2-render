@@ -4,7 +4,9 @@ import {BrowserSessions,authorised} from './engine.mjs';
 import {selfTest} from './self-test.mjs';
 export async function startBrowserService(token){
 if(token.length<40)throw Error('Browser service token is required');
-const browserLauncher={async launch(options){try{return await chromium.launch(options);}catch(error){console.error('Chromium launch unavailable:',error.message.split('\n').filter(line=>/sandbox|Permission|denied|FATAL|namespace/i.test(line)).map(line=>line.slice(0,250)).slice(-4).join(' '));return firefox.launch({headless:true});}}};
+let compatibleEngine=chromium;
+const browserEnvironment={PATH:process.env.PATH,HOME:'/home/pwuser',LANG:'en_US.UTF-8'};
+const browserLauncher={async launch(options){if(compatibleEngine===firefox)return firefox.launch({headless:true,env:browserEnvironment});try{return await chromium.launch({...options,env:browserEnvironment});}catch(error){console.error('Chromium launch unavailable:',error.message.split('\n').filter(line=>/sandbox|Permission|denied|FATAL|namespace/i.test(line)).map(line=>line.slice(0,250)).slice(-4).join(' '));compatibleEngine=firefox;return firefox.launch({headless:true,env:browserEnvironment});}}};
 const engine=new BrowserSessions(browserLauncher,{max:1});
 let ready=false,result,failed=false;
 const server=http.createServer(async(req,res)=>{
