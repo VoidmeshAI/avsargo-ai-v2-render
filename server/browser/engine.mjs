@@ -26,21 +26,24 @@ export class BrowserSessions{
    if(context.routeWebSocket)await context.routeWebSocket('**/*',socket=>socket.close());
    const page=await context.newPage();
    s={id:randomBytes(24).toString('base64url'),owner,browser,context,page,width,height,created:this.clock(),touched:this.clock(),queue:Promise.resolve(),profile:cleanProfile(input.profile,input.meta),documents:Array.isArray(input.documents)?input.documents.slice(0,15):[],enabled:input.consent===true,lastFilled:'',filledCount:0,attachedCount:0,mapped:new Set()};
-   context.on('page',p=>{p.on('dialog',dialog=>dialog.dismiss().catch(()=>{}));if(p!==s.page)s.page=p;});page.on('dialog',dialog=>dialog.dismiss().catch(()=>{}));
+   const watch=p=>{p.on('dialog',dialog=>dialog.dismiss().catch(()=>{}));p.on('domcontentloaded',()=>{if(!p.isClosed()&&(fixture||official(p.url())))s.page=p;});p.on('close',()=>{if(s.page===p){const pages=context.pages().filter(item=>!item.isClosed()&&(fixture||official(item.url())));if(pages.length)s.page=pages.at(-1);}});};context.on('page',watch);watch(page);
    await page.goto(fixture?'https://avsargo-selfcheck.invalid/':input.url,{waitUntil:'domcontentloaded'}).catch(e=>{if(page.url()==='about:blank')throw e;});
    this.sessions.set(s.id,s);return await this.frame(owner,s.id);
   }catch(e){console.error(JSON.stringify({event:'browser_start_error',kind:e.name,message:String(e.message||'').replace(/https?:\/\/\S+/g,'[url]').split('\n')[0].slice(0,250)}));if(s)this.sessions.delete(s.id);await browser?.close().catch(()=>{});if(e.status)throw e;fail(503,'The application browser could not start. Please try again.');}finally{this.pending--;this.starting.delete(owner);}
  }
- async scan(s){if(s.page.isClosed())fail(410,'This application window has closed. Reopen your form.');return s.page.evaluate(evaluateAgent,{mode:'scan'});}
+ active(s){if(!s.page.isClosed())return s.page;const pages=s.context.pages().filter(p=>!p.isClosed()&&official(p.url()));if(!pages.length)fail(410,'The portal closed this window. Reopen your form.');s.page=pages.at(-1);return s.page;}
+ async scan(s){return this.active(s).evaluate(evaluateAgent,{mode:'scan'});}
  async tick(s){
   const scan=await this.scan(s);if(s.enabled&&s.profile&&scan.signature!==s.lastFilled&&!scan.flags.login&&!scan.flags.payment){const r=await s.page.evaluate(evaluateAgent,{mode:'fill',payload:{signature:scan.signature,fields:s.profile.fields,meta:s.profile.meta}});s.lastFilled=scan.signature;s.filledCount+=r.filled?.length||0;}
   return this.scan(s);
  }
  async frame(owner,id){return this.run(owner,id,async s=>{
-  const scan=await this.tick(s),focus=await s.page.evaluate(()=>{const e=document.activeElement;if(!e)return {};const editable=['INPUT','TEXTAREA'].includes(e.tagName)&&e.type!=='file'&&!e.disabled;const secure=e.type==='password'||/otp|one.?time|captcha|cvv|security.?code|pin/i.test([e.name,e.id,e.autocomplete].join(' '));const options=e.tagName==='SELECT'?[...e.options].filter(o=>!o.disabled).slice(0,100).map(o=>({label:o.textContent.slice(0,100),value:o.value})):[];return {editable,secure,options};});
-  const image=await s.page.screenshot({type:'jpeg',quality:65,timeout:10000});
-  const url=new URL(s.page.url());const safeUrl=url.origin+url.pathname;
-  return {ok:true,sessionId:id,image:'data:image/jpeg;base64,'+image.toString('base64'),width:s.width,height:s.height,url:safeUrl,title:(await s.page.title()).slice(0,150),filledCount:s.filledCount,attachedCount:s.attachedCount,enabled:s.enabled,flags:scan.flags,focus,signature:scan.signature,candidates:scan.candidates,uploads:scan.uploads,expiresIn:Math.max(0,Math.floor((this.lifetimeMs-(this.clock()-s.created))/1000))};
+  const scan=await this.tick(s),page=this.active(s),focus=await page.evaluate(()=>{const e=document.activeElement;if(!e)return {};const editable=['INPUT','TEXTAREA'].includes(e.tagName)&&e.type!=='file'&&!e.disabled;const secure=e.type==='password'||/otp|one.?time|captcha|cvv|security.?code|pin/i.test([e.name,e.id,e.autocomplete].join(' '));const options=e.tagName==='SELECT'?[...e.options].filter(o=>!o.disabled).slice(0,100).map(o=>({label:o.textContent.slice(0,100),value:o.value})):[];return {editable,secure,options};});
+  const image=await page.screenshot({type:'jpeg',quality:65,timeout:10000});
+  const url=new URL(page.url());const safeUrl=url.origin+url.pathname;
+  // Reading document.title through the DOM can stall during an ongoing redirect.
+  const title=await Promise.race([page.title().catch(()=>''),new Promise(resolve=>setTimeout(()=>resolve('Official application'),500))]);
+  return {ok:true,sessionId:id,image:'data:image/jpeg;base64,'+image.toString('base64'),width:s.width,height:s.height,url:safeUrl,title:title.slice(0,150),filledCount:s.filledCount,attachedCount:s.attachedCount,enabled:s.enabled,flags:scan.flags,focus,signature:scan.signature,candidates:scan.candidates,uploads:scan.uploads,expiresIn:Math.max(0,Math.floor((this.lifetimeMs-(this.clock()-s.created))/1000))};
  });}
  async action(owner,id,input){
   await this.run(owner,id,async s=>{const page=s.page;switch(input.action){
