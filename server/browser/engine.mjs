@@ -43,7 +43,7 @@ export class BrowserSessions{
   const page=this.active(s),now=this.clock();let view=await page.evaluate(inspectView);
   const key=page.url()+'|'+view.key,changed=s.viewKey!==key||s.scanRevision!==view.revision;
   if(!s.scanCache||changed||s.forceScan||now-(s.scannedAt||0)>=2000){s.scanCache=await this.tick(s);view=await page.evaluate(inspectView);s.scanRevision=view.revision;s.scannedAt=now;s.forceScan=false;}
-  const scan=s.scanCache,plan=capturePlan(view,s,s.documentView),ttl=scan.flags.captcha?1500:5000;
+  const scan=s.scanCache,plan=capturePlan(view,s,s.documentView),ttl=plan.mode==='document'?8000:scan.flags.captcha?1500:5000;
   if(!s.cachedImage||s.visualDirty||s.viewKey!==key||s.imageDOMRevision!==view.revision||s.capture?.mode!==plan.mode||plan.mode==='viewport'&&(s.imageScrollX!==view.scrollX||s.imageScrollY!==view.scrollY)||now-(s.capturedAt||0)>=ttl){
    // Default caret hiding mutates every input's style and invalidates the DOM cache.
    let image=await page.screenshot({type:'jpeg',quality:65,timeout:10000,fullPage:plan.mode==='document',caret:'initial'}),size=jpegSize(image,plan);
