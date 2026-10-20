@@ -4,10 +4,15 @@ export function inspectView(){
  const key='__avsargoRemoteView_v1';
  if(!window[key]||window[key].root!==document.documentElement){
   window[key]?.observer.disconnect();
-  const state={key:Date.now().toString(36)+Math.random().toString(36).slice(2),revision:0,root:document.documentElement};
+  const state={key:Date.now().toString(36)+Math.random().toString(36).slice(2),revision:0,visualRevision:0,root:document.documentElement};
   Object.defineProperty(window,key,{value:state,configurable:true});
-  state.observer=new MutationObserver(()=>state.revision++);state.observer.observe(document.documentElement,{subtree:true,childList:true,characterData:true,attributes:true});
-  for(const name of ['input','change'])document.addEventListener(name,()=>state.revision++,true);
+  const metadata=node=>node?.nodeType===1&&(['SCRIPT','META','TITLE'].includes(node.tagName)||node.tagName==='INPUT'&&node.type==='hidden'&&!node.getClientRects().length);
+  state.observer=new MutationObserver(records=>{state.revision++;if(records.some(r=>{
+   if(metadata(r.target)||metadata(r.target.parentElement))return false;
+   if(r.type==='childList'){const changed=[...r.addedNodes,...r.removedNodes];if(changed.length&&changed.every(n=>metadata(n)||n.nodeType===3&&!n.textContent.trim()))return false;}
+   return true;
+  }))state.visualRevision++;});state.observer.observe(document.documentElement,{subtree:true,childList:true,characterData:true,attributes:true});
+  for(const name of ['input','change'])document.addEventListener(name,()=>{state.revision++;state.visualRevision++;},true);
  }
  const state=window[key],root=document.documentElement,body=document.body,e=document.activeElement;
  const focus={};
@@ -18,7 +23,7 @@ export function inspectView(){
   if(focus.editable||e.tagName==='SELECT'){const r=e.getBoundingClientRect();focus.bounds={x:r.x+window.scrollX,y:r.y+window.scrollY,width:r.width,height:r.height};}
  }
  const viewportOnly=[...document.querySelectorAll('iframe,[role="dialog"]')].some(node=>{const r=node.getBoundingClientRect();return r.width>200&&r.height>150&&r.bottom>0&&r.top<window.innerHeight&&getComputedStyle(node).visibility!=='hidden';});
- return {key:state.key,revision:state.revision,width:Math.ceil(Math.max(root.scrollWidth,root.clientWidth,body?.scrollWidth||0)),height:Math.ceil(Math.max(root.scrollHeight,root.clientHeight,body?.scrollHeight||0)),scrollX:window.scrollX,scrollY:window.scrollY,title:document.title.slice(0,150),focus,viewportOnly};
+ return {key:state.key,revision:state.revision,visualRevision:state.visualRevision,width:Math.ceil(Math.max(root.scrollWidth,root.clientWidth,body?.scrollWidth||0)),height:Math.ceil(Math.max(root.scrollHeight,root.clientHeight,body?.scrollHeight||0)),scrollX:window.scrollX,scrollY:window.scrollY,title:document.title.slice(0,150),focus,viewportOnly};
 }
 export function capturePlan(view,viewport,documentView){
  const width=Math.max(viewport.width,Number(view.width)||viewport.width),height=Math.max(viewport.height,Number(view.height)||viewport.height);
