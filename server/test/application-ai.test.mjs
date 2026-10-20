@@ -54,10 +54,11 @@ test('protected or unsupported website controls cannot be sent to AI Assist',asy
 });
 test('ordinary chat has grounded workflow facts but no document text or profile values',async()=>{
  const f=await fixture('Use Upload documents, then review and autofill');const r=await f.req('/api/chat',{consent:true,messages:[{role:'user',text:'PAN form fill karo'}],workflow:{service:'pan',documentCount:2,reviewedKeys:['fullName','password'],documentAnalysis:'reviewed',filledCount:3,profile:{fullName:'PRIVATE APPLICANT'},text:'PRIVATE OCR'}});
- assert.equal(r.status,200);const p=JSON.parse(f.calls[0].options.body),prompt=p.systemInstruction.parts[0].text;assert.ok(prompt.includes('read all scanned pages'));assert.ok(prompt.includes('"filledCount":3'));assert.ok(!prompt.includes('PRIVATE'));assert.ok(!prompt.includes('Never claim to have read uploaded documents'));
+ assert.equal(r.status,200);const p=JSON.parse(f.calls[0].options.body),prompt=p.systemInstruction.parts[0].text;assert.ok(prompt.includes('all-page scanning, AI extraction and review are available'));assert.ok(prompt.includes('"filledCount":3'));assert.ok(!prompt.includes('PRIVATE'));assert.ok(!prompt.includes('Never claim to have read uploaded documents'));
  assert.deepEqual(workflowContext({documentCount:99,reviewedKeys:['fullName','password']} ).reviewedKeys,['fullName']);
 });
 test('document analysis and chat share per-device concurrency and quota protection',async()=>{
  let release,entered;const start=new Promise(r=>entered=r),wait=new Promise(r=>release=r);const f=await fixture(async()=>{entered();await wait;return {candidates:[candidate()]};});
  const first=f.req('/api/documents/analyse',{consent:true,documents:[scan]});await start;assert.equal((await f.req('/api/forms/map',{consent:true,fields:[]})).status,409);assert.equal((await f.req('/api/chat',{consent:true,messages:[{role:'user',text:'Hello'}]})).status,409);release();assert.equal((await first).status,200);
 });
+

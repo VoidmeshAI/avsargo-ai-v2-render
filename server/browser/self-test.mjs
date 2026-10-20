@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 export async function selfTest(engine){
- const owner='a'.repeat(64),other='b'.repeat(64),checks=[];let first,second;
+ const owner='a'.repeat(64),other='b'.repeat(64),checks=[];let first,second,fast;
  const fixture=`<!doctype html><html><body><form onsubmit="window.submissions++;event.preventDefault()"><label>Applicant name<input name="fullName"></label><label>Email<input name="email" value="kept@example.test"></label><label>Date of birth<input name="dob" type="date"></label><label>State<select name="state"><option value="">Choose state</option><option value="BR">Bihar</option></select></label><label>Passport size photo<input type="file" name="photo" accept="image/png"></label><button type="submit">Submit</button></form><script>window.submissions=0</script></body></html>`;
  const profile={fullName:'Self Test Applicant',email:'replace@example.test',dob:'21/01/2000',state:'Bihar',mobile:'9876543210'};
  const documents=[{id:'photo1',name:'photo.png',mime:'image/png',type:'photo'}];
@@ -18,6 +18,16 @@ export async function selfTest(engine){
   const box=await s.page.locator('[name=otp]').boundingBox();await engine.action(owner,first.sessionId,{action:'click',x:box.x+10,y:box.y+10});await engine.action(owner,first.sessionId,{action:'text',text:'123456'});assert.equal(await s.page.locator('[name=otp]').inputValue(),'123456');checks.push('user can complete verification through browser controls');
   await engine.close(owner,first.sessionId);await assert.rejects(engine.frame(owner,first.sessionId),e=>e.status===404);checks.push('ending the session removes access');
   second=await engine.start(other,{consent:true,profile:{fullName:'Other Applicant'},width:700,height:600},{fixture});const b=engine.get(other,second.sessionId);assert.equal((await b.context.cookies()).length,0);assert.equal(await b.page.locator('[name=fullName]').inputValue(),'Other Applicant');checks.push('new workspaces have isolated cookies and values');
-  await engine.close(other,second.sessionId);return {passed:checks.length,checks};
- }finally{for(const id of [first?.sessionId,second?.sessionId]){const s=engine.sessions.get(id);if(s)await engine.destroy(s);}}
+  await engine.close(other,second.sessionId);
+  const longForm='<!doctype html><html><body style="margin:0"><div style="height:2400px">Official application fixture</div><label>Reference<input id="manual" name="reference"></label><div style="height:600px"></div></body></html>';
+  fast=await engine.start(owner,{consent:false,viewMode:'document',width:390,height:600},{fixture:longForm});const d=engine.get(owner,fast.sessionId);
+  assert.equal(fast.capture.mode,'document');assert.ok(fast.capture.height>2400);checks.push('long mobile forms preload as a natively scrollable document');
+  let captures=0;const original=d.page.screenshot.bind(d.page);d.page.screenshot=async options=>{captures++;return original(options);};
+  const started=performance.now(),idle=[];for(let i=0;i<4;i++){const frame=await engine.frame(owner,fast.sessionId,{since:fast.frameRevision});assert.equal(frame.image,undefined);assert.equal(frame.unchanged,true);idle.push(Buffer.byteLength(JSON.stringify(frame)));}
+  const idleAverageMs=Math.round((performance.now()-started)/idle.length);assert.equal(captures,0);checks.push('unchanged form polls reuse the capture without image transfers');
+  const target=await d.page.locator('#manual').evaluate(e=>{const r=e.getBoundingClientRect();return {x:r.x+window.scrollX,y:r.y+window.scrollY};});await engine.action(owner,fast.sessionId,{action:'click',coordinateSpace:'document',frameRevision:fast.frameRevision,x:target.x+10,y:target.y+10});await engine.action(owner,fast.sessionId,{action:'text',text:'USER ENTERED'});assert.equal(await d.page.locator('#manual').inputValue(),'USER ENTERED');checks.push('a document tap below the initial screen focuses the correct real input');
+  const performanceResult={idlePolls:idle.length,idleAverageMs,idleAverageBytes:Math.round(idle.reduce((a,b)=>a+b,0)/idle.length),initialBytes:Buffer.byteLength(JSON.stringify(fast)),idleCaptures:0};
+  await engine.close(owner,fast.sessionId);return {passed:checks.length,checks,performance:performanceResult};
+ }finally{for(const id of [first?.sessionId,second?.sessionId,fast?.sessionId]){const s=engine.sessions.get(id);if(s)await engine.destroy(s);}}
 }
+
