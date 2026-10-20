@@ -13,7 +13,7 @@ function fixture(documentView=true){
   if(data&&Object.hasOwn(data,'x')&&Object.hasOwn(data,'height')){view.scrollY=Math.max(0,data.y-data.height/2);return {x:0,y:view.scrollY};}
   if(data&&Object.hasOwn(data,'dy')){view.scrollY+=data.dy;return true;}
   throw Error('Unexpected browser operation');
- },screenshot:async options=>{shots++;return jpeg(390,options.fullPage?view.height:600);},mouse:{click:async(x,y)=>clicks.push({x,y}),wheel:async()=>{}},keyboard:{insertText:async()=>{},press:async()=>{}}};
+ },screenshot:async options=>{shots++;if(options.caret!=='initial')view.revision++;return jpeg(390,options.fullPage?view.height:600);},mouse:{click:async(x,y)=>clicks.push({x,y}),wheel:async()=>{}},keyboard:{insertText:async()=>{},press:async()=>{}}};
  const engine=new BrowserSessions({}, {clock:()=>now});
  const session={id:'session-one',owner:'a'.repeat(64),browser:{close:async()=>{}},context:{},page,width:390,height:600,created:now,touched:now,queue:Promise.resolve(),profile:{fields:{},meta:{}},documents:[],enabled:false,filledCount:0,attachedCount:0,documentView};engine.sessions.set(session.id,session);
  return {engine,session,view,clicks,counts:()=>({shots,scans}),advance:ms=>now+=ms,frame:input=>engine.frame(session.owner,session.id,input),action:input=>engine.action(session.owner,session.id,input),done:()=>engine.shutdown()};
