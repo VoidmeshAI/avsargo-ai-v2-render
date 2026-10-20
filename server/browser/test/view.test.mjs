@@ -31,7 +31,7 @@ test('unchanged frame polls scan and capture once, then transfer metadata withou
  }finally{await f.done();}
 });
 test('changed fields invalidate the image, while cached form guards are periodically rechecked',async()=>{
- const f=fixture();try{const first=await f.frame();f.view.revision++;const second=await f.frame({since:first.frameRevision});assert.equal(second.unchanged,false);assert.ok(second.image);assert.equal(second.frameRevision,first.frameRevision+1);f.advance(2100);await f.frame({since:second.frameRevision});assert.deepEqual(f.counts(),{shots:2,scans:3});f.advance(5000);await f.frame({since:second.frameRevision});assert.equal(f.counts().shots,3);}finally{await f.done();}
+ const f=fixture();try{const first=await f.frame();f.view.revision++;const second=await f.frame({since:first.frameRevision});assert.equal(second.unchanged,false);assert.ok(second.image);assert.equal(second.frameRevision,first.frameRevision+1);f.advance(2100);await f.frame({since:second.frameRevision});assert.deepEqual(f.counts(),{shots:2,scans:3});f.advance(9000);await f.frame({since:second.frameRevision});assert.equal(f.counts().shots,3);}finally{await f.done();}
 });
 test('a click far below the viewport scrolls and clicks in one ordered operation',async()=>{
  const f=fixture();try{const first=await f.frame();await f.action({action:'click',coordinateSpace:'document',frameRevision:first.frameRevision,x:120,y:2400});assert.deepEqual(f.clicks,[{x:120,y:300}]);assert.equal(f.view.scrollY,2100);assert.equal(f.counts().shots,2);}finally{await f.done();}
@@ -40,7 +40,7 @@ test('stale or changed document views cannot click a new field by old coordinate
  const f=fixture();try{const first=await f.frame();f.view.revision++;await assert.rejects(f.action({action:'click',coordinateSpace:'document',frameRevision:first.frameRevision,x:120,y:2400}),e=>e.status===409);assert.equal(f.clicks.length,0);assert.throws(()=>documentPointer({x:1,y:2,frameRevision:0},first.capture,first.frameRevision),e=>e.status===409);assert.throws(()=>documentPointer({x:-1,y:2,frameRevision:first.frameRevision},first.capture,first.frameRevision),e=>e.status===400);}finally{await f.done();}
 });
 test('a recent displayed image can still be clicked after an unchanged refresh overtakes it',async()=>{
- const f=fixture();try{const displayed=await f.frame();f.advance(5100);const refreshed=await f.frame({since:displayed.frameRevision});assert.ok(refreshed.frameRevision>displayed.frameRevision);await f.action({action:'click',coordinateSpace:'document',frameRevision:displayed.frameRevision,x:120,y:2400});assert.equal(f.clicks.length,1);assert.ok(f.session.captureHistory.size<=4);}finally{await f.done();}
+ const f=fixture();try{const displayed=await f.frame();f.advance(8100);const refreshed=await f.frame({since:displayed.frameRevision});assert.ok(refreshed.frameRevision>displayed.frameRevision);await f.action({action:'click',coordinateSpace:'document',frameRevision:displayed.frameRevision,x:120,y:2400});assert.equal(f.clicks.length,1);assert.ok(f.session.captureHistory.size<=4);}finally{await f.done();}
 });
 test('legacy viewport scrolling captures the new scroll position immediately',async()=>{
  const f=fixture(false);try{await f.frame();const moved=await f.action({action:'scroll',dy:350});assert.equal(moved.scrollY,350);assert.equal(moved.capture.mode,'viewport');assert.equal(f.counts().shots,2);}finally{await f.done();}
