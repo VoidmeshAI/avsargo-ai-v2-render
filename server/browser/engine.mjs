@@ -45,8 +45,9 @@ export class BrowserSessions{
   if(!s.scanCache||changed||s.forceScan||now-(s.scannedAt||0)>=2000){s.scanCache=await this.tick(s);view=await page.evaluate(inspectView);s.scanRevision=view.revision;s.scannedAt=now;s.forceScan=false;}
   const scan=s.scanCache,plan=capturePlan(view,s,s.documentView),ttl=scan.flags.captcha?1500:5000;
   if(!s.cachedImage||s.visualDirty||s.viewKey!==key||s.imageDOMRevision!==view.revision||s.capture?.mode!==plan.mode||plan.mode==='viewport'&&(s.imageScrollX!==view.scrollX||s.imageScrollY!==view.scrollY)||now-(s.capturedAt||0)>=ttl){
-   let image=await page.screenshot({type:'jpeg',quality:65,timeout:10000,fullPage:plan.mode==='document'}),size=jpegSize(image,plan);
-   if(plan.mode==='document'&&(size.height>12000||size.width>1440||size.width*size.height>6000000)){plan.mode='viewport';image=await page.screenshot({type:'jpeg',quality:65,timeout:10000});size=jpegSize(image,s);}
+   // Default caret hiding mutates every input's style and invalidates the DOM cache.
+   let image=await page.screenshot({type:'jpeg',quality:65,timeout:10000,fullPage:plan.mode==='document',caret:'initial'}),size=jpegSize(image,plan);
+   if(plan.mode==='document'&&(size.height>12000||size.width>1440||size.width*size.height>6000000)){plan.mode='viewport';image=await page.screenshot({type:'jpeg',quality:65,timeout:10000,caret:'initial'});size=jpegSize(image,s);}
    s.cachedImage='data:image/jpeg;base64,'+image.toString('base64');s.imageRevision=(s.imageRevision||0)+1;s.capture={mode:plan.mode,width:size.width,height:size.height,revision:s.imageRevision};s.capturedAt=now;s.imageDOMRevision=view.revision;s.imageScrollX=view.scrollX;s.imageScrollY=view.scrollY;s.visualDirty=false;
   }
   s.viewKey=key;
