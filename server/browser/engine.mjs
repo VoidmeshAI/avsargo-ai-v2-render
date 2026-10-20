@@ -8,7 +8,7 @@ const fail=(status,message)=>{throw Object.assign(Error(message),{status});};
 export class BrowserSessions{
  constructor(chromium,{max=2,idleMs=180000,lifetimeMs=1800000,clock=Date.now}={}){Object.assign(this,{chromium,max,idleMs,lifetimeMs,clock});this.sessions=new Map();this.starting=new Set();this.pending=0;this.cleanup=setInterval(()=>this.expire(),30000);this.cleanup.unref();}
  async expire(){const now=this.clock();for(const s of this.sessions.values())if(now-s.touched>this.idleMs||now-s.created>this.lifetimeMs)await this.destroy(s);}
- async destroy(s){this.sessions.delete(s.id);s.profile=null;s.documents=[];s.cachedImage=null;s.scanCache=null;await s.browser.close().catch(()=>{});}
+ async destroy(s){this.sessions.delete(s.id);s.profile=null;s.documents=[];s.cachedImage=null;s.scanCache=null;s.captureHistory?.clear();await s.browser.close().catch(()=>{});}
  get(owner,id){const s=this.sessions.get(id);if(!s||s.owner!==owner)fail(404,'Application session ended. Reopen your form.');if(this.clock()-s.touched>this.idleMs||this.clock()-s.created>this.lifetimeMs){this.destroy(s);fail(410,'Application session expired. Reopen your form.');}s.touched=this.clock();return s;}
  async run(owner,id,fn){const s=this.get(owner,id);const operation=s.queue.then(()=>fn(s));s.queue=operation.catch(()=>{});return operation;}
  async start(owner,input,{fixture}={}){
@@ -49,6 +49,7 @@ export class BrowserSessions{
    let image=await page.screenshot({type:'jpeg',quality:65,timeout:10000,fullPage:plan.mode==='document',caret:'initial'}),size=jpegSize(image,plan);
    if(plan.mode==='document'&&(size.height>12000||size.width>1440||size.width*size.height>6000000)){plan.mode='viewport';image=await page.screenshot({type:'jpeg',quality:65,timeout:10000,caret:'initial'});size=jpegSize(image,s);}
    s.cachedImage='data:image/jpeg;base64,'+image.toString('base64');s.imageRevision=(s.imageRevision||0)+1;s.capture={mode:plan.mode,width:size.width,height:size.height,revision:s.imageRevision};s.capturedAt=now;s.imageDOMRevision=view.revision;s.imageScrollX=view.scrollX;s.imageScrollY=view.scrollY;s.visualDirty=false;
+   s.captureHistory||=new Map();s.captureHistory.set(s.imageRevision,{capture:s.capture,key,domRevision:view.revision});while(s.captureHistory.size>4)s.captureHistory.delete(s.captureHistory.keys().next().value);
   }
   s.viewKey=key;
   const url=new URL(page.url());const safeUrl=url.origin+url.pathname;
@@ -58,8 +59,8 @@ export class BrowserSessions{
  async action(owner,id,input){
   return this.run(owner,id,async s=>{const page=this.active(s);switch(input.action){
    case 'click':{let x=Number(input.x),y=Number(input.y);if(input.coordinateSpace==='document'){
-    const point=documentPointer(input,s.capture,s.imageRevision),current=await page.evaluate(inspectView);
-    if(s.viewKey!==page.url()+'|'+current.key||s.imageDOMRevision!==current.revision){s.visualDirty=true;fail(409,'This form view changed. Tap again on the refreshed page.');}
+    const displayed=s.captureHistory?.get(input.frameRevision),point=documentPointer(input,displayed?.capture,displayed?.capture.revision),current=await page.evaluate(inspectView);
+    if(displayed.key!==page.url()+'|'+current.key||displayed.domRevision!==current.revision){s.visualDirty=true;fail(409,'This form view changed. Tap again on the refreshed page.');}
     const offset=await page.evaluate(({x,y,width,height})=>{window.scrollTo({left:Math.max(0,x-width/2),top:Math.max(0,y-height/2),behavior:'instant'});return {x:window.scrollX,y:window.scrollY};},{...point,width:s.width,height:s.height});x=point.x-offset.x;y=point.y-offset.y;
    }if(!Number.isFinite(x)||!Number.isFinite(y)||x<0||y<0||x>s.width||y>s.height)fail(400,'Invalid pointer');await page.mouse.click(x,y);break;}
    case 'scroll':{const dy=Math.max(-1500,Math.min(1500,Number(input.dy)||0)),dx=Math.max(-1500,Math.min(1500,Number(input.dx)||0));const scrolled=await page.evaluate(({dx,dy})=>{const root=document.scrollingElement;if(!root||root.scrollHeight<=window.innerHeight+2)return false;window.scrollBy({left:dx,top:dy,behavior:'instant'});return true;},{dx,dy});if(!scrolled){await page.mouse.wheel(dx,dy);await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));}break;}
