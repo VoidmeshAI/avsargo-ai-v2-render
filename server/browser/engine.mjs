@@ -43,13 +43,14 @@ export class BrowserSessions{
   const page=this.active(s),now=this.clock();let view=await page.evaluate(inspectView);
   const key=page.url()+'|'+view.key,changed=s.viewKey!==key||s.scanRevision!==view.revision;
   if(!s.scanCache||changed||s.forceScan||now-(s.scannedAt||0)>=2000){s.scanCache=await this.tick(s);view=await page.evaluate(inspectView);s.scanRevision=view.revision;s.scannedAt=now;s.forceScan=false;}
-  const scan=s.scanCache,plan=capturePlan(view,s,s.documentView),ttl=plan.mode==='document'?8000:scan.flags.captcha?1500:5000;
-  if(!s.cachedImage||s.visualDirty||s.viewKey!==key||s.imageDOMRevision!==view.revision||s.capture?.mode!==plan.mode||plan.mode==='viewport'&&(s.imageScrollX!==view.scrollX||s.imageScrollY!==view.scrollY)||now-(s.capturedAt||0)>=ttl){
+  const scan=s.scanCache,plan=capturePlan(view,s,s.documentView),ttl=plan.mode==='document'?8000:scan.flags.captcha?1500:5000,visualRevision=view.visualRevision??view.revision,formKey=scan.signature+'|'+JSON.stringify(scan.flags);
+  if(!s.cachedImage||s.visualDirty||s.viewKey!==key||s.imageVisualRevision!==visualRevision||s.imageFormKey!==formKey||s.capture?.mode!==plan.mode||s.capture?.width!==plan.width||s.capture?.height!==plan.height||plan.mode==='viewport'&&(s.imageScrollX!==view.scrollX||s.imageScrollY!==view.scrollY)||now-(s.capturedAt||0)>=ttl){
    // Default caret hiding mutates every input's style and invalidates the DOM cache.
    let image=await page.screenshot({type:'jpeg',quality:65,timeout:10000,fullPage:plan.mode==='document',caret:'initial'}),size=jpegSize(image,plan);
    if(plan.mode==='document'&&(size.height>12000||size.width>1440||size.width*size.height>6000000)){plan.mode='viewport';image=await page.screenshot({type:'jpeg',quality:65,timeout:10000,caret:'initial'});size=jpegSize(image,s);}
-   s.cachedImage='data:image/jpeg;base64,'+image.toString('base64');s.imageRevision=(s.imageRevision||0)+1;s.capture={mode:plan.mode,width:size.width,height:size.height,revision:s.imageRevision};s.capturedAt=now;s.imageDOMRevision=view.revision;s.imageScrollX=view.scrollX;s.imageScrollY=view.scrollY;s.visualDirty=false;
-   s.captureHistory||=new Map();s.captureHistory.set(s.imageRevision,{capture:s.capture,key,domRevision:view.revision});while(s.captureHistory.size>4)s.captureHistory.delete(s.captureHistory.keys().next().value);
+   const encoded='data:image/jpeg;base64,'+image.toString('base64'),identical=s.cachedImage===encoded&&s.viewKey===key&&s.imageFormKey===formKey&&s.capture?.mode===plan.mode;
+   s.cachedImage=encoded;if(!identical)s.imageRevision=(s.imageRevision||0)+1;s.capture={mode:plan.mode,width:size.width,height:size.height,revision:s.imageRevision};s.capturedAt=now;s.imageVisualRevision=visualRevision;s.imageFormKey=formKey;s.imageScrollX=view.scrollX;s.imageScrollY=view.scrollY;s.visualDirty=false;
+   s.captureHistory||=new Map();s.captureHistory.set(s.imageRevision,{capture:s.capture,key,visualRevision});while(s.captureHistory.size>4)s.captureHistory.delete(s.captureHistory.keys().next().value);
   }
   s.viewKey=key;
   const url=new URL(page.url());const safeUrl=url.origin+url.pathname;
@@ -60,7 +61,7 @@ export class BrowserSessions{
   return this.run(owner,id,async s=>{const page=this.active(s);switch(input.action){
    case 'click':{let x=Number(input.x),y=Number(input.y);if(input.coordinateSpace==='document'){
     const displayed=s.captureHistory?.get(input.frameRevision),point=documentPointer(input,displayed?.capture,displayed?.capture.revision),current=await page.evaluate(inspectView);
-    if(displayed.key!==page.url()+'|'+current.key||displayed.domRevision!==current.revision){s.visualDirty=true;fail(409,'This form view changed. Tap again on the refreshed page.');}
+    if(displayed.key!==page.url()+'|'+current.key||displayed.visualRevision!==(current.visualRevision??current.revision)){s.visualDirty=true;fail(409,'This form view changed. Tap again on the refreshed page.');}
     const offset=await page.evaluate(({x,y,width,height})=>{window.scrollTo({left:Math.max(0,x-width/2),top:Math.max(0,y-height/2),behavior:'instant'});return {x:window.scrollX,y:window.scrollY};},{...point,width:s.width,height:s.height});x=point.x-offset.x;y=point.y-offset.y;
    }if(!Number.isFinite(x)||!Number.isFinite(y)||x<0||y<0||x>s.width||y>s.height)fail(400,'Invalid pointer');await page.mouse.click(x,y);break;}
    case 'scroll':{const dy=Math.max(-1500,Math.min(1500,Number(input.dy)||0)),dx=Math.max(-1500,Math.min(1500,Number(input.dx)||0));const scrolled=await page.evaluate(({dx,dy})=>{const root=document.scrollingElement;if(!root||root.scrollHeight<=window.innerHeight+2)return false;window.scrollBy({left:dx,top:dy,behavior:'instant'});return true;},{dx,dy});if(!scrolled){await page.mouse.wheel(dx,dy);await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));}break;}
