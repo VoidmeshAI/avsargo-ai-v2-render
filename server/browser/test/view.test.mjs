@@ -13,7 +13,7 @@ function fixture(documentView=true){
   if(data&&Object.hasOwn(data,'x')&&Object.hasOwn(data,'height')){view.scrollY=Math.max(0,data.y-data.height/2);return {x:0,y:view.scrollY};}
   if(data&&Object.hasOwn(data,'dy')){view.scrollY+=data.dy;return true;}
   throw Error('Unexpected browser operation');
- },screenshot:async options=>{shots++;if(options.caret!=='initial')view.revision++;return jpeg(390,options.fullPage?view.height:600);},mouse:{click:async(x,y)=>clicks.push({x,y}),wheel:async()=>{}},keyboard:{insertText:async()=>{},press:async()=>{}}};
+ },screenshot:async options=>{shots++;if(options.caret!=='initial')view.revision++;const bytes=jpeg(390,options.fullPage?view.height:600);bytes[24]=view.imageRevision??view.revision;return bytes;},mouse:{click:async(x,y)=>clicks.push({x,y}),wheel:async()=>{}},keyboard:{insertText:async()=>{},press:async()=>{}}};
  const engine=new BrowserSessions({}, {clock:()=>now});
  const session={id:'session-one',owner:'a'.repeat(64),browser:{close:async()=>{}},context:{},page,width:390,height:600,created:now,touched:now,queue:Promise.resolve(),profile:{fields:{},meta:{}},documents:[],enabled:false,filledCount:0,attachedCount:0,documentView};engine.sessions.set(session.id,session);
  return {engine,session,view,clicks,counts:()=>({shots,scans}),advance:ms=>now+=ms,frame:input=>engine.frame(session.owner,session.id,input),action:input=>engine.action(session.owner,session.id,input),done:()=>engine.shutdown()};
@@ -40,7 +40,13 @@ test('stale or changed document views cannot click a new field by old coordinate
  const f=fixture();try{const first=await f.frame();f.view.revision++;await assert.rejects(f.action({action:'click',coordinateSpace:'document',frameRevision:first.frameRevision,x:120,y:2400}),e=>e.status===409);assert.equal(f.clicks.length,0);assert.throws(()=>documentPointer({x:1,y:2,frameRevision:0},first.capture,first.frameRevision),e=>e.status===409);assert.throws(()=>documentPointer({x:-1,y:2,frameRevision:first.frameRevision},first.capture,first.frameRevision),e=>e.status===400);}finally{await f.done();}
 });
 test('a recent displayed image can still be clicked after an unchanged refresh overtakes it',async()=>{
- const f=fixture();try{const displayed=await f.frame();f.advance(8100);const refreshed=await f.frame({since:displayed.frameRevision});assert.ok(refreshed.frameRevision>displayed.frameRevision);await f.action({action:'click',coordinateSpace:'document',frameRevision:displayed.frameRevision,x:120,y:2400});assert.equal(f.clicks.length,1);assert.ok(f.session.captureHistory.size<=4);}finally{await f.done();}
+ const f=fixture();try{const displayed=await f.frame();f.advance(8100);const refreshed=await f.frame({since:displayed.frameRevision});assert.equal(refreshed.unchanged,true);await f.action({action:'click',coordinateSpace:'document',frameRevision:displayed.frameRevision,x:120,y:2400});assert.equal(f.clicks.length,1);assert.ok(f.session.captureHistory.size<=4);}finally{await f.done();}
+});
+test('nonvisual metadata changes still recheck form guards without transferring another image',async()=>{
+ const f=fixture();try{f.view.visualRevision=0;const first=await f.frame();f.view.revision++;const next=await f.frame({since:first.frameRevision});assert.equal(next.image,undefined);assert.deepEqual(f.counts(),{shots:1,scans:2});await f.action({action:'click',coordinateSpace:'document',frameRevision:first.frameRevision,x:100,y:2000});assert.equal(f.clicks.length,1);}finally{await f.done();}
+});
+test('a visually identical recapture keeps its revision and accepts a legitimate displayed tap',async()=>{
+ const f=fixture();try{f.view.imageRevision=0;const first=await f.frame();f.view.revision++;const next=await f.frame({since:first.frameRevision});assert.equal(next.unchanged,true);assert.equal(next.frameRevision,first.frameRevision);await f.action({action:'click',coordinateSpace:'document',frameRevision:first.frameRevision,x:100,y:2000});assert.equal(f.clicks.length,1);}finally{await f.done();}
 });
 test('legacy viewport scrolling captures the new scroll position immediately',async()=>{
  const f=fixture(false);try{await f.frame();const moved=await f.action({action:'scroll',dy:350});assert.equal(moved.scrollY,350);assert.equal(moved.capture.mode,'viewport');assert.equal(f.counts().shots,2);}finally{await f.done();}
