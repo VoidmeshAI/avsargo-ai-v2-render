@@ -23,8 +23,26 @@ export function inspectView(){
   focus.options=e.tagName==='SELECT'?[...e.options].filter(o=>!o.disabled).slice(0,100).map(o=>({label:o.textContent.slice(0,100),value:o.value})):[];
   if(focus.editable||e.tagName==='SELECT'){const r=e.getBoundingClientRect();focus.bounds={x:r.x+window.scrollX,y:r.y+window.scrollY,width:r.width,height:r.height};}
  }
- const viewportOnly=[...document.querySelectorAll('iframe,[role="dialog"]')].some(node=>{const r=node.getBoundingClientRect();return r.width>200&&r.height>150&&r.bottom>0&&r.top<window.innerHeight&&getComputedStyle(node).visibility!=='hidden';});
+ const viewportOnly=needsViewport(document,window.innerHeight,getComputedStyle);
  return {key:state.key,revision:state.revision,visualRevision:state.visualRevision,width:Math.ceil(Math.max(root.scrollWidth,root.clientWidth,body?.scrollWidth||0)),height:Math.ceil(Math.max(root.scrollHeight,root.clientHeight,body?.scrollHeight||0)),scrollX:window.scrollX,scrollY:window.scrollY,title:document.title.slice(0,150),focus,viewportOnly};
+// Full-page coordinates cannot follow fixed cookie panels or sticky navigation:
+// scrolling to the pictured target moves the control away from that target.
+function needsViewport(document,height,styleFor){
+ const visited=new Set();
+ for(const node of [...document.querySelectorAll('iframe,dialog,[role="dialog"],button,a,input,select,textarea,[role="button"]')].slice(0,600)){
+  const box=node.getBoundingClientRect();
+  if(!box.width||!box.height||box.bottom<=0||box.top>=height||styleFor(node).visibility==='hidden')continue;
+  if((node.tagName==='IFRAME'||node.tagName==='DIALOG'||node.getAttribute('role')==='dialog')&&box.width>200&&box.height>150)return true;
+  for(let parent=node;parent&&parent!==document.documentElement;parent=parent.parentElement){
+   if(visited.has(parent))break;visited.add(parent);
+   const position=styleFor(parent).position;
+   if(position!=='fixed'&&position!=='sticky')continue;
+   const r=parent.getBoundingClientRect();
+   if(r.width>200&&r.height>32&&r.bottom>0&&r.top<height)return true;
+  }
+ }
+ return false;
+}
 }
 export function capturePlan(view,viewport,documentView){
  const width=Math.max(viewport.width,Number(view.width)||viewport.width),height=Math.max(viewport.height,Number(view.height)||viewport.height);
