@@ -3,6 +3,7 @@ import {readFileSync} from 'node:fs';
 import {official,cleanProfile,fileMatches} from './guards.mjs';
 import {inspectView,capturePlan,jpegSize,documentPointer} from './view.mjs';
 import {portalRoute} from './network.mjs';
+import {openPortal} from './navigation.mjs';
 const agentSource=readFileSync(new URL('./form-agent.js',import.meta.url),'utf8');
 const evaluateAgent=new Function('data','return ('+agentSource+')(data.mode,data.payload);');
 const fail=(status,message)=>{throw Object.assign(Error(message),{status});};
@@ -29,7 +30,7 @@ export class BrowserSessions{
    const page=await context.newPage();
    s={id:randomBytes(24).toString('base64url'),owner,browser,context,page,width,height,created:this.clock(),touched:this.clock(),queue:Promise.resolve(),profile:cleanProfile(input.profile,input.meta),documents:Array.isArray(input.documents)?input.documents.slice(0,15):[],enabled:input.consent===true,lastFilled:'',filledCount:0,attachedCount:0,mapped:new Set(),documentView:input.viewMode==='document',imageRevision:0,visualDirty:true,forceScan:true};
    const watch=p=>{p.on('dialog',dialog=>dialog.dismiss().catch(()=>{}));p.on('domcontentloaded',()=>{if(!p.isClosed()&&(fixture||official(p.url())))s.page=p;});p.on('close',()=>{if(s.page===p){const pages=context.pages().filter(item=>!item.isClosed()&&(fixture||official(item.url())));if(pages.length)s.page=pages.at(-1);}});};context.on('page',watch);watch(page);
-   await page.goto(fixture?'https://avsargo-selfcheck.invalid/':input.url,{waitUntil:'domcontentloaded'}).catch(e=>{if(page.url()==='about:blank')throw e;});
+   await openPortal(page,fixture?'https://avsargo-selfcheck.invalid/':input.url);
    this.sessions.set(s.id,s);return await this.frame(owner,s.id);
   }catch(e){console.error(JSON.stringify({event:'browser_start_error',kind:e.name,message:String(e.message||'').replace(/https?:\/\/\S+/g,'[url]').split('\n')[0].slice(0,250)}));if(s)this.sessions.delete(s.id);await browser?.close().catch(()=>{});if(e.status)throw e;fail(503,'The application browser could not start. Please try again.');}finally{this.pending--;this.starting.delete(owner);}
  }
