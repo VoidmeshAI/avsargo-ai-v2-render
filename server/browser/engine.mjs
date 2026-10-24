@@ -1,7 +1,8 @@
 import {randomBytes,timingSafeEqual} from 'node:crypto';
 import {readFileSync} from 'node:fs';
-import {official,publicResource,cleanProfile,fileMatches} from './guards.mjs';
+import {official,cleanProfile,fileMatches} from './guards.mjs';
 import {inspectView,capturePlan,jpegSize,documentPointer} from './view.mjs';
+import {portalRoute} from './network.mjs';
 const agentSource=readFileSync(new URL('./form-agent.js',import.meta.url),'utf8');
 const evaluateAgent=new Function('data','return ('+agentSource+')(data.mode,data.payload);');
 const fail=(status,message)=>{throw Object.assign(Error(message),{status});};
@@ -23,7 +24,7 @@ export class BrowserSessions{
    const width=Math.max(360,Math.min(1440,Number(input.width)||1040)),height=Math.max(500,Math.min(1000,Number(input.height)||760));
    const context=await browser.newContext({viewport:{width,height},deviceScaleFactor:1,acceptDownloads:false,serviceWorkers:'block',locale:'en-IN'});
    context.setDefaultTimeout(7000);context.setDefaultNavigationTimeout(45000);
-   await context.route('**/*',async route=>{const request=route.request(),url=request.url();if(fixture&&url==='https://avsargo-selfcheck.invalid/'){await route.fulfill({contentType:'text/html',body:fixture});return;}if(!await publicResource(url)||request.isNavigationRequest()&&!request.frame().parentFrame()&&!official(url)){await route.abort('blockedbyclient');return;}await route.continue();});
+   await context.route('**/*',portalRoute({fixture,report:event=>console.error(JSON.stringify(event))}));
    if(context.routeWebSocket)await context.routeWebSocket('**/*',socket=>socket.close());
    const page=await context.newPage();
    s={id:randomBytes(24).toString('base64url'),owner,browser,context,page,width,height,created:this.clock(),touched:this.clock(),queue:Promise.resolve(),profile:cleanProfile(input.profile,input.meta),documents:Array.isArray(input.documents)?input.documents.slice(0,15):[],enabled:input.consent===true,lastFilled:'',filledCount:0,attachedCount:0,mapped:new Set(),documentView:input.viewMode==='document',imageRevision:0,visualDirty:true,forceScan:true};
@@ -89,4 +90,5 @@ export class BrowserSessions{
  async shutdown(){clearInterval(this.cleanup);await Promise.all([...this.sessions.values()].map(s=>this.destroy(s)));}
 }
 export function authorised(header,token){const value=Buffer.from(String(header||'').replace(/^Bearer /,'')),expected=Buffer.from(token);return expected.length>=40&&value.length===expected.length&&timingSafeEqual(value,expected);}
+
 

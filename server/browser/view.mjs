@@ -17,7 +17,8 @@ export function inspectView(){
  const state=window[key],root=document.documentElement,body=document.body,e=document.activeElement;
  const focus={};
  if(e){
-  focus.editable=['INPUT','TEXTAREA'].includes(e.tagName)&&e.type!=='file'&&!e.disabled;
+  focus.editable=['INPUT','TEXTAREA'].includes(e.tagName)&&!['file','button','submit','reset','checkbox','radio','range','color','hidden','image'].includes(e.type)&&!e.disabled&&!e.readOnly;
+  focus.label=String(e.getAttribute('aria-label')||[...(e.labels||[])].map(n=>n.textContent).join(' ')||e.getAttribute('placeholder')||'Selected form field').replace(/\s+/g,' ').trim().slice(0,120);
   focus.secure=e.type==='password'||/otp|one.?time|captcha|cvv|security.?code|pin/i.test([e.name,e.id,e.autocomplete].join(' '));
   focus.options=e.tagName==='SELECT'?[...e.options].filter(o=>!o.disabled).slice(0,100).map(o=>({label:o.textContent.slice(0,100),value:o.value})):[];
   if(focus.editable||e.tagName==='SELECT'){const r=e.getBoundingClientRect();focus.bounds={x:r.x+window.scrollX,y:r.y+window.scrollY,width:r.width,height:r.height};}
@@ -47,3 +48,4 @@ export function documentPointer(input,capture,revision){
  if(!Number.isFinite(x)||!Number.isFinite(y)||x<0||y<0||x>=capture.width||y>=capture.height)throw Object.assign(Error('Invalid pointer'),{status:400});
  return {x,y};
 }
+

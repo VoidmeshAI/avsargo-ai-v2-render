@@ -28,7 +28,9 @@ export async function selfTest(engine){
   d.capturedAt-=9000;await engine.frame(owner,fast.sessionId,{since:fast.frameRevision});
   const target=await d.page.locator('#manual').evaluate(e=>{const r=e.getBoundingClientRect();return {x:r.x+window.scrollX,y:r.y+window.scrollY};});await engine.action(owner,fast.sessionId,{action:'click',coordinateSpace:'document',frameRevision:fast.frameRevision,x:target.x+10,y:target.y+10});await engine.action(owner,fast.sessionId,{action:'text',text:'USER ENTERED'});assert.equal(await d.page.locator('#manual').inputValue(),'USER ENTERED');checks.push('a document tap below the initial screen focuses correctly even after an unchanged refresh');
   const performanceResult={idlePolls:idle.length,idleAverageMs,idleAverageBytes:Math.round(idle.reduce((a,b)=>a+b,0)/idle.length),initialBytes:Buffer.byteLength(JSON.stringify(fast)),idleCaptures:0};
+  const originalPage=d.page,popupReady=d.context.waitForEvent('page');await originalPage.evaluate(()=>{window.open('https://avsargo-selfcheck.invalid/','_blank');});const popup=await popupReady;await popup.waitForLoadState('domcontentloaded');await engine.frame(owner,fast.sessionId);assert.equal(engine.active(d),popup);await popup.close();await engine.frame(owner,fast.sessionId);assert.equal(engine.active(d),originalPage);assert.equal(await originalPage.locator('#manual').inputValue(),'USER ENTERED');checks.push('popup navigation without an initial Frame keeps the browser service and original form alive');
   await engine.close(owner,fast.sessionId);return {passed:checks.length,checks,performance:performanceResult};
  }finally{for(const id of [first?.sessionId,second?.sessionId,fast?.sessionId]){const s=engine.sessions.get(id);if(s)await engine.destroy(s);}}
 }
+
 

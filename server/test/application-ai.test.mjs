@@ -16,6 +16,17 @@ test('document analysis requires native authentication and separate explicit con
  const f=await fixture();assert.equal((await f.req('/api/documents/analyse',{consent:true,documents:[scan]},false)).status,401);
  assert.equal((await f.req('/api/documents/analyse',{documents:[scan]})).status,400);assert.equal(f.calls.length,0);assert.equal(f.app.snapshot().devices[id].used,0);
 });
+test('UPTGT resolves to Uttar Pradesh without an AI request or a usage charge',async()=>{
+ const f=await fixture();
+ for(const query of ['UPTGT','uptgt ka form fill krna hai','U.P.T.G.T.']){
+  const result=await f.req('/api/applications/resolve',{query,state:'Bihar',consent:true});
+  assert.equal(result.status,200);assert.equal(result.data.application.id,'uptgt');
+  assert.equal(result.data.application.state,'Uttar Pradesh');
+  assert.equal(result.data.application.url,'https://upessc.up.gov.in/');
+  assert.equal(result.data.application.kind,'exam-portal');
+ }
+ assert.equal(f.calls.length,0);assert.equal(f.app.snapshot().devices[id].used,0);
+});
 test('selected OCR text uses structured AI and returns source-backed proposals, without server persistence',async()=>{
  const f=await fixture();const r=await f.req('/api/documents/analyse',{consent:true,documents:[scan],profile:{fullName:'DO NOT SEND PROFILE'}});
  assert.equal(r.status,200);assert.equal(r.data.requiresReview,true);assert.equal(r.data.candidates[0].value,'Sample Applicant');assert.equal(r.data.status.used,1);
@@ -61,4 +72,5 @@ test('document analysis and chat share per-device concurrency and quota protecti
  let release,entered;const start=new Promise(r=>entered=r),wait=new Promise(r=>release=r);const f=await fixture(async()=>{entered();await wait;return {candidates:[candidate()]};});
  const first=f.req('/api/documents/analyse',{consent:true,documents:[scan]});await start;assert.equal((await f.req('/api/forms/map',{consent:true,fields:[]})).status,409);assert.equal((await f.req('/api/chat',{consent:true,messages:[{role:'user',text:'Hello'}]})).status,409);release();assert.equal((await first).status,200);
 });
+
 
